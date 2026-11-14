@@ -333,6 +333,9 @@ a:focus-visible {
 .table-scroll table:has(.file-name) {
   min-width: 780px;
 }
+.table-scroll .audit-table {
+  min-width: 800px;
+}
 .object-table th:last-child {
   width: 72px;
 }

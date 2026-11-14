@@ -44,7 +44,7 @@ export default function Audit() {
         ) : (
           <>
             <div className="table-scroll">
-              <Table>
+              <Table className="audit-table">
                 <Table.Header>
                   <Table.Row>
                     <Table.Head>操作时间</Table.Head>
@@ -61,7 +61,9 @@ export default function Audit() {
                         {formatDate(item.createdAt)}
                       </Table.Cell>
                       <Table.Cell className="nowrap">{item.action}</Table.Cell>
-                      <Table.Cell>{item.accountName || "—"}</Table.Cell>
+                      <Table.Cell className="nowrap">
+                        {item.accountName || "—"}
+                      </Table.Cell>
                       <Table.Cell>
                         <span className="break-all">{item.resource}</span>
                         {item.detail && (
