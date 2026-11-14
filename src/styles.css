@@ -846,6 +846,11 @@ a:focus-visible {
   padding-top: 16px;
   border-top: 1px solid var(--color-kumo-line);
 }
+.dns-inline-footer > button {
+  flex: 0 0 88px;
+  width: 88px;
+  justify-content: center;
+}
 .dns-inline-footer > :last-child {
   margin-left: 10px;
 }
