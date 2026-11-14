@@ -53,6 +53,9 @@ function JsonSetting({
         <Text variant="heading" as="h2">
           {title}
         </Text>
+        {cors && (
+          <p className="muted">上传和预览需要允许当前面板地址，添加规则后请保存。</p>
+        )}
       </div>
       {query.isPending ? (
         <Loading />
@@ -204,7 +207,7 @@ export function BucketSettings({
                   <Table.Head>域名</Table.Head>
                   <Table.Head>访问状态</Table.Head>
                   <Table.Head>证书状态</Table.Head>
-                  <Table.Head />
+                  <Table.Head>操作</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>

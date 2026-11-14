@@ -63,6 +63,7 @@ export class Cloudflare {
             ? 429
             : 502,
         message,
+        data.errors,
       );
     }
     return { result: data.result, info: data.result_info };

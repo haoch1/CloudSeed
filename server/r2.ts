@@ -575,11 +575,26 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
     "domains/managed",
   ]) {
     router.get(`/buckets/:bucket/${setting}`, async (_request, response) => {
-      const { result } = await accountClient(response.locals.account).call(
-        `${bucketPath(response.locals.account, response.locals.bucket)}/${setting}`,
-        { jurisdiction: response.locals.jurisdiction },
-      );
-      response.json(result ?? {});
+      try {
+        const { result } = await accountClient(response.locals.account).call(
+          `${bucketPath(response.locals.account, response.locals.bucket)}/${setting}`,
+          { jurisdiction: response.locals.jurisdiction },
+        );
+        response.json(result ?? {});
+      } catch (error) {
+        if (
+          setting === "cors" &&
+          error instanceof ApiError &&
+          error.status === 502 &&
+          Array.isArray(error.details) &&
+          error.details.length > 0 &&
+          error.details.every((item) => item?.code === 10059)
+        ) {
+          response.json({ rules: [] });
+          return;
+        }
+        throw error;
+      }
     });
   }
   for (const setting of ["cors", "lifecycle"]) {

@@ -271,6 +271,43 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
     assert.equal(buckets.status, 200);
     assert.equal(fixture.calls.at(-1)?.jurisdiction, "eu");
     const base = `/accounts/${account.id}/r2/buckets/assets`;
+    let corsFailure = {
+      status: 404,
+      errors: [
+        { code: 10059, message: "The CORS configuration does not exist." },
+      ],
+    };
+    globalThis.fetch = async (input, init) => {
+      const path = new URL(String(input)).pathname;
+      if (path.endsWith("/cors") && (!init?.method || init.method === "GET"))
+        return new Response(
+          JSON.stringify({ success: false, errors: corsFailure.errors }),
+          {
+            status: corsFailure.status,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      return fixture.upstreamFetch(input, init);
+    };
+    const missingCors = await request(`${base}/cors?jurisdiction=eu`);
+    assert.equal(missingCors.status, 200);
+    assert.deepEqual(await missingCors.json(), { rules: [] });
+    corsFailure = {
+      status: 403,
+      errors: [{ code: 10000, message: "Authentication error" }],
+    };
+    const deniedCors = await request(`${base}/cors`);
+    assert.equal(deniedCors.status, 403);
+    assert.match((await deniedCors.json()).error, /10000/);
+    corsFailure = {
+      status: 500,
+      errors: [
+        { code: 10059, message: "The CORS configuration does not exist." },
+        { code: 10000, message: "Another Cloudflare error" },
+      ],
+    };
+    assert.equal((await request(`${base}/cors`)).status, 502);
+    globalThis.fetch = fixture.upstreamFetch;
     assert.equal(
       (await request(`${base}/objects?jurisdiction=eu`)).status,
       200,
