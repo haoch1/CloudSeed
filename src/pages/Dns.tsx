@@ -1,7 +1,6 @@
 import { Select } from "@cloudflare/kumo/components/select";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Popover } from "@cloudflare/kumo/components/popover";
-import { Collapsible } from "@cloudflare/kumo/components/collapsible";
 import { useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -14,7 +13,6 @@ import {
   ArrowLeftIcon,
   DotsThreeIcon,
   FunnelIcon,
-  CaretDownIcon,
   BookOpenIcon,
 } from "@phosphor-icons/react";
 import { api, downloadJson } from "../api";
@@ -34,6 +32,7 @@ import {
   Confirm,
   Field,
   SubmitButton,
+  FormDisclosure,
   submit,
   useAction,
   useToast,
@@ -291,18 +290,10 @@ function RecordForm({
               required
             />
           )}
-          <Collapsible.Root
-            className="record-attributes"
+          <FormDisclosure
+            label="记录属性"
             defaultOpen={Boolean(record?.comment)}
-          >
-            <div className="record-attributes-header">
-              <Collapsible.Trigger
-                type="button"
-                className="record-attributes-trigger"
-              >
-                <CaretDownIcon size={14} aria-hidden="true" />
-                记录属性
-              </Collapsible.Trigger>
+            accessory={
               <a
                 className="record-attributes-docs"
                 href="https://developers.cloudflare.com/dns/manage-dns-records/reference/record-attributes/"
@@ -313,16 +304,15 @@ function RecordForm({
               >
                 <BookOpenIcon size={12} aria-hidden="true" />
               </a>
-            </div>
-            <Collapsible.Panel className="record-attributes-panel" keepMounted>
-              <Input
-                label="备注"
-                name="comment"
-                defaultValue={record?.comment}
-                maxLength={500}
-              />
-            </Collapsible.Panel>
-          </Collapsible.Root>
+            }
+          >
+            <Input
+              label="备注"
+              name="comment"
+              defaultValue={record?.comment}
+              maxLength={500}
+            />
+          </FormDisclosure>
         </div>
         <div className="modal-footer">
           <SubmitButton pending={pending}>保存</SubmitButton>

@@ -841,32 +841,16 @@ a:focus-visible {
   gap: 5px;
   font-size: var(--text-sm);
 }
-.advanced-fields {
+.form-disclosure {
   border-top: 1px solid var(--color-kumo-line);
   padding-top: 15px;
 }
-.advanced-fields summary {
-  cursor: pointer;
-  font-size: var(--text-base);
-}
-.advanced-fields p,
-.advanced-fields > div {
-  margin-top: 15px;
-}
-.advanced-fields p {
-  font-size: var(--text-sm);
-  line-height: 1.5;
-}
-.record-attributes {
-  border-top: 1px solid var(--color-kumo-line);
-  padding-top: 15px;
-}
-.record-attributes-header {
+.form-disclosure-header {
   display: flex;
   align-items: center;
   gap: 20px;
 }
-.record-attributes-trigger {
+.form-disclosure-trigger {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -876,11 +860,11 @@ a:focus-visible {
   padding: 4px 10px;
   font: inherit;
 }
-.record-attributes-trigger > svg {
+.form-disclosure-trigger > svg {
   flex-shrink: 0;
   transition: transform 150ms ease-out;
 }
-.record-attributes-trigger[data-panel-open] > svg {
+.form-disclosure-trigger[data-panel-open] > svg {
   transform: rotate(180deg);
 }
 .record-attributes-docs {
@@ -896,7 +880,7 @@ a:focus-visible {
 .record-attributes-docs:hover {
   background: var(--color-kumo-tint);
 }
-.record-attributes-panel {
+.form-disclosure-panel {
   padding-top: 16px;
 }
 .switch-field {

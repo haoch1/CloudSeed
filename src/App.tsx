@@ -1,5 +1,12 @@
 import { Select } from "@cloudflare/kumo/components/select";
-import { lazy, Suspense, useEffect, useState, type CSSProperties } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useLayoutEffect,
+  useState,
+  type CSSProperties,
+} from "react";
 import {
   NavLink,
   Navigate,
@@ -83,6 +90,7 @@ function AuthScreen() {
             label="用户名"
             name="username"
             autoComplete="username"
+            passwordManagerIgnore={false}
             required
           />
           <Input
@@ -93,6 +101,7 @@ function AuthScreen() {
             maxLength={256}
             required
             autoComplete="current-password"
+            passwordManagerIgnore={false}
           />
           {error && (
             <div className="form-error" role="alert">
@@ -158,6 +167,14 @@ function Shell({ username }: { username: string }) {
   const location = useLocation();
   const client = useQueryClient();
   const { pending, run } = useAction();
+  useLayoutEffect(() => {
+    document.body.setAttribute("data-1p-ignore", "true");
+    document.body.setAttribute("data-op-ignore", "true");
+    return () => {
+      document.body.removeAttribute("data-1p-ignore");
+      document.body.removeAttribute("data-op-ignore");
+    };
+  }, []);
   useEffect(() => {
     document.documentElement.dataset.mode = dark ? "dark" : "light";
     localStorage.setItem("cloudseed-theme", dark ? "dark" : "light");

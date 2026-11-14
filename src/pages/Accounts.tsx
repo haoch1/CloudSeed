@@ -17,6 +17,7 @@ import {
   Modal,
   Confirm,
   SubmitButton,
+  FormDisclosure,
   submit,
   useAction,
   useToast,
@@ -91,8 +92,7 @@ function AccountForm({
             创建 API Token
             <ArrowSquareOutIcon size={14} />
           </a>
-          <details className="advanced-fields">
-            <summary>R2 S3 凭据（可选）</summary>
+          <FormDisclosure label="R2 S3 凭据（可选）">
             <Input
               label="Access Key ID"
               name="accessKeyId"
@@ -105,7 +105,7 @@ function AccountForm({
               autoComplete="new-password"
               description={account ? "留空保留现有凭据" : undefined}
             />
-          </details>
+          </FormDisclosure>
         </div>
         <div className="modal-footer">
           <Button type="button" onClick={onClose} disabled={pending}>

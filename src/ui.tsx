@@ -14,7 +14,8 @@ import {
   RefreshButton as KumoRefreshButton,
 } from "@cloudflare/kumo/components/button";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
-import { Input } from "@cloudflare/kumo/components/input";
+import { Collapsible } from "@cloudflare/kumo/components/collapsible";
+import { Input as KumoInput } from "@cloudflare/kumo/components/input";
 import { Table } from "@cloudflare/kumo/components/table";
 import { Switch } from "@cloudflare/kumo/components/switch";
 import { Empty } from "@cloudflare/kumo/components/empty";
@@ -24,9 +25,47 @@ import {
   WarningCircleIcon,
   ArrowClockwiseIcon,
   CheckCircleIcon,
+  CaretDownIcon,
 } from "@phosphor-icons/react";
 
-export { Button, Input, Table, Switch, Text };
+export { Button, Table, Switch, Text };
+
+export function Input({
+  passwordManagerIgnore = true,
+  ...props
+}: ComponentProps<typeof KumoInput>) {
+  return <KumoInput {...props} passwordManagerIgnore={passwordManagerIgnore} />;
+}
+
+export function FormDisclosure({
+  label,
+  defaultOpen = false,
+  accessory,
+  children,
+}: {
+  label: ReactNode;
+  defaultOpen?: boolean;
+  accessory?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <Collapsible.Root className="form-disclosure" defaultOpen={defaultOpen}>
+      <div className="form-disclosure-header">
+        <Collapsible.Trigger type="button" className="form-disclosure-trigger">
+          <CaretDownIcon size={14} aria-hidden="true" />
+          {label}
+        </Collapsible.Trigger>
+        {accessory}
+      </div>
+      <Collapsible.Panel
+        className="form-disclosure-panel form-stack"
+        keepMounted
+      >
+        {children}
+      </Collapsible.Panel>
+    </Collapsible.Root>
+  );
+}
 
 const refreshDuration = 1200;
 
