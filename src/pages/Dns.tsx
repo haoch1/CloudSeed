@@ -1,7 +1,6 @@
 import { Select } from "@cloudflare/kumo/components/select";
-import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
 import { Popover } from "@cloudflare/kumo/components/popover";
-import { useRef, useState } from "react";
+import { Fragment, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -11,7 +10,6 @@ import {
   MagnifyingGlassIcon,
   TrashIcon,
   ArrowLeftIcon,
-  DotsThreeIcon,
   FunnelIcon,
   BookOpenIcon,
 } from "@phosphor-icons/react";
@@ -129,11 +127,15 @@ function RecordForm({
   zoneName,
   base,
   onClose,
+  onDelete,
+  onBusyChange,
 }: {
   record?: DnsRecord;
   zoneName: string;
   base: string;
   onClose: () => void;
+  onDelete?: () => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [type, setType] = useState(record?.type || "A");
   const [proxied, setProxied] = useState(record?.proxied ?? false);
@@ -147,139 +149,169 @@ function RecordForm({
   const ttlOptions = Array.from(
     new Set([1, 60, 120, 300, 600, 1800, 3600, 7200, 86400, ttl]),
   );
-  return (
-    <Modal
-      title={record ? "编辑记录" : "添加记录"}
-      onClose={onClose}
-      busy={pending}
-      wide
+  const relativeName = record
+    ? record.name === zoneName
+      ? "@"
+      : record.name.endsWith(`.${zoneName}`)
+        ? record.name.slice(0, -(zoneName.length + 1))
+        : record.name
+    : "";
+  const nameField = (
+    <Input
+      label="名称"
+      name="name"
+      defaultValue={relativeName}
+      required
+      maxLength={253}
+      autoFocus={Boolean(record)}
+    />
+  );
+  const typeField = (
+    <Field label="类型">
+      <Select
+        value={type}
+        onValueChange={(value) => setType(value ?? "A")}
+        aria-label="记录类型"
+      >
+        {recordTypes.map((item) => (
+          <Select.Option key={item} value={item}>
+            {item}
+          </Select.Option>
+        ))}
+      </Select>
+    </Field>
+  );
+  const form = (
+    <form
+      className={record ? "dns-inline-form" : undefined}
+      onSubmit={(event) =>
+        submit(event, (form) => {
+          onBusyChange?.(true);
+          void run(async () => {
+            const rawName = String(form.get("name")).trim();
+            const name =
+              rawName === "@"
+                ? zoneName
+                : rawName === zoneName || rawName.endsWith(`.${zoneName}`)
+                  ? rawName
+                  : `${rawName}.${zoneName}`;
+            const input = {
+              type,
+              name,
+              content: String(form.get("content") || ""),
+              ttl: isProxied ? 1 : ttl,
+              proxied: isProxied,
+              comment: String(form.get("comment") || ""),
+              ...(type === "MX"
+                ? { priority: Number(form.get("priority")) }
+                : {}),
+              ...(structuredTypes.includes(type)
+                ? { data: JSON.parse(String(form.get("data"))) }
+                : {}),
+            };
+            await api(`${base}/records${record ? `/${record.id}` : ""}`, {
+              method: record ? "PATCH" : "POST",
+              body: input,
+            });
+            await client.invalidateQueries({ queryKey: ["records"] });
+            onClose();
+          }, "DNS 记录已保存").finally(() => onBusyChange?.(false));
+        })
+      }
     >
-      <form
-        onSubmit={(event) =>
-          submit(event, (form) =>
-            run(async () => {
-              const rawName = String(form.get("name")).trim();
-              const name =
-                rawName === "@"
-                  ? zoneName
-                  : rawName === zoneName || rawName.endsWith(`.${zoneName}`)
-                    ? rawName
-                    : `${rawName}.${zoneName}`;
-              const input = {
-                type,
-                name,
-                content: String(form.get("content") || ""),
-                ttl: isProxied ? 1 : ttl,
-                proxied: isProxied,
-                comment: String(form.get("comment") || ""),
-                ...(type === "MX"
-                  ? { priority: Number(form.get("priority")) }
-                  : {}),
-                ...(structuredTypes.includes(type)
-                  ? { data: JSON.parse(String(form.get("data"))) }
-                  : {}),
-              };
-              await api(`${base}/records${record ? `/${record.id}` : ""}`, {
-                method: record ? "PATCH" : "POST",
-                body: input,
-              });
-              await client.invalidateQueries({ queryKey: ["records"] });
-              onClose();
-            }, "DNS 记录已保存"),
-          )
+      <div
+        className={
+          record
+            ? `dns-inline-fields${canProxy ? " has-proxy" : ""}`
+            : "modal-body form-stack"
         }
       >
-        <div className="modal-body form-stack">
-          <div className="dns-name-grid">
-            <Field label="类型">
-              <Select
-                value={type}
-                onValueChange={(value) => setType(value ?? "A")}
-                aria-label="记录类型"
-              >
-                {recordTypes.map((item) => (
-                  <Select.Option key={item} value={item}>
-                    {item}
-                  </Select.Option>
-                ))}
-              </Select>
+        <div className="dns-name-grid">
+          {record ? (
+            <>
+              {nameField}
+              {typeField}
+            </>
+          ) : (
+            <>
+              {typeField}
+              {nameField}
+            </>
+          )}
+        </div>
+        <div
+          className={
+            canProxy ? "dns-value-grid" : "dns-value-fields form-stack"
+          }
+        >
+          {structuredTypes.includes(type) ? (
+            <Field
+              label="结构化数据 JSON"
+              hint="填写 Cloudflare API 对应记录类型的 data 字段"
+            >
+              <textarea
+                name="data"
+                className="code-input"
+                rows={6}
+                defaultValue={JSON.stringify(record?.data ?? {}, null, 2)}
+                required
+              />
             </Field>
-            <Input
-              label="名称"
-              name="name"
-              defaultValue={record?.name ?? ""}
-              required
-              maxLength={253}
-            />
-          </div>
-          <div className={canProxy ? "dns-value-grid" : "form-stack"}>
-            {structuredTypes.includes(type) ? (
-              <Field
-                label="结构化数据 JSON"
-                hint="填写 Cloudflare API 对应记录类型的 data 字段"
-              >
-                <textarea
-                  name="data"
-                  className="code-input"
-                  rows={6}
-                  defaultValue={JSON.stringify(record?.data ?? {}, null, 2)}
-                  required
-                />
-              </Field>
-            ) : type === "TXT" ? (
-              <Field label="文本内容">
-                <textarea
-                  name="content"
-                  rows={4}
-                  defaultValue={record?.content}
-                  required
-                  maxLength={65535}
-                />
-              </Field>
-            ) : (
-              <Input
-                label={contentLabel}
+          ) : type === "TXT" ? (
+            <Field label="文本内容">
+              <textarea
                 name="content"
+                rows={4}
                 defaultValue={record?.content}
                 required
                 maxLength={65535}
               />
-            )}
-            {canProxy && (
-              <div className="field">
-                <span id="record-proxy-label">代理状态</span>
-                <div className="proxy-control">
-                  <Switch
-                    checked={proxied}
-                    onCheckedChange={setProxied}
-                    aria-labelledby="record-proxy-label"
-                  />
-                  <span className="proxy-status">
-                    <ProxyCloud proxied={isProxied} />
-                    <span className="proxy-label">
-                      {isProxied ? "已代理" : "仅 DNS"}
-                    </span>
-                  </span>
-                </div>
-              </div>
-            )}
-            <Field label="TTL">
-              <Select
-                value={isProxied ? 1 : ttl}
-                onValueChange={(value) => setTtl(value ?? 1)}
-                disabled={isProxied}
-                aria-label="TTL"
-                renderValue={(value) => (value === 1 ? "自动" : `${value} 秒`)}
-              >
-                {ttlOptions.map((value) => (
-                  <Select.Option key={value} value={value}>
-                    {value === 1 ? "自动" : `${value} 秒`}
-                  </Select.Option>
-                ))}
-              </Select>
             </Field>
-          </div>
-          {type === "MX" && (
+          ) : (
+            <Input
+              label={contentLabel}
+              name="content"
+              defaultValue={record?.content}
+              required
+              maxLength={65535}
+            />
+          )}
+          {canProxy && (
+            <div className="field">
+              <span id="record-proxy-label">代理状态</span>
+              <div className="proxy-control">
+                <Switch
+                  checked={proxied}
+                  onCheckedChange={setProxied}
+                  aria-labelledby="record-proxy-label"
+                />
+                <span className="proxy-status">
+                  <ProxyCloud proxied={isProxied} />
+                  <span className="proxy-label">
+                    {isProxied ? "已代理" : "仅 DNS"}
+                  </span>
+                </span>
+              </div>
+            </div>
+          )}
+          <Field label="TTL">
+            <Select
+              value={isProxied ? 1 : ttl}
+              onValueChange={(value) => setTtl(value ?? 1)}
+              disabled={isProxied}
+              aria-label="TTL"
+              renderValue={(value) => (value === 1 ? "自动" : `${value} 秒`)}
+            >
+              {ttlOptions.map((value) => (
+                <Select.Option key={value} value={value}>
+                  {value === 1 ? "自动" : `${value} 秒`}
+                </Select.Option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+        {type === "MX" && (
+          <div className="dns-priority-field">
             <Input
               label="优先级"
               name="priority"
@@ -289,38 +321,56 @@ function RecordForm({
               defaultValue={record?.priority ?? 10}
               required
             />
-          )}
-          <FormDisclosure
-            label="记录属性"
-            defaultOpen={Boolean(record?.comment)}
-            accessory={
-              <a
-                className="record-attributes-docs"
-                href="https://developers.cloudflare.com/dns/manage-dns-records/reference/record-attributes/"
-                target="_blank"
-                rel="noreferrer"
-                aria-label="查看记录属性文档"
-                title="记录属性文档"
-              >
-                <BookOpenIcon size={12} aria-hidden="true" />
-              </a>
-            }
+          </div>
+        )}
+        <FormDisclosure
+          label="记录属性"
+          defaultOpen={Boolean(record?.comment)}
+          accessory={
+            <a
+              className="record-attributes-docs"
+              href="https://developers.cloudflare.com/dns/manage-dns-records/reference/record-attributes/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="查看记录属性文档"
+              title="记录属性文档"
+            >
+              <BookOpenIcon size={12} aria-hidden="true" />
+            </a>
+          }
+        >
+          <Input
+            label="备注"
+            name="comment"
+            defaultValue={record?.comment}
+            maxLength={500}
+          />
+        </FormDisclosure>
+      </div>
+      <div className={record ? "dns-inline-footer" : "modal-footer"}>
+        <SubmitButton pending={pending}>保存</SubmitButton>
+        <Button type="button" onClick={onClose} disabled={pending}>
+          取消
+        </Button>
+        {record && onDelete && (
+          <Button
+            type="button"
+            variant="secondary-destructive"
+            onClick={onDelete}
+            disabled={pending}
           >
-            <Input
-              label="备注"
-              name="comment"
-              defaultValue={record?.comment}
-              maxLength={500}
-            />
-          </FormDisclosure>
-        </div>
-        <div className="modal-footer">
-          <SubmitButton pending={pending}>保存</SubmitButton>
-          <Button type="button" onClick={onClose} disabled={pending}>
-            取消
+            <TrashIcon size={16} />
+            删除
           </Button>
-        </div>
-      </form>
+        )}
+      </div>
+    </form>
+  );
+  return record ? (
+    form
+  ) : (
+    <Modal title="添加记录" onClose={onClose} busy={pending} wide>
+      {form}
     </Modal>
   );
 }
@@ -333,6 +383,7 @@ export default function Dns() {
   const [proxy, setProxy] = useState("all");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<DnsRecord | "new" | null>(null);
+  const [recordSaving, setRecordSaving] = useState(false);
   const [deleting, setDeleting] = useState<DnsRecord[] | null>(null);
   const [importing, setImporting] = useState<Record<string, unknown>[] | null>(
     null,
@@ -580,7 +631,11 @@ export default function Dns() {
               <DownloadIcon size={18} />
               导出
             </Button>
-            <Button variant="primary" onClick={() => setEditing("new")}>
+            <Button
+              variant="primary"
+              disabled={recordSaving}
+              onClick={() => setEditing("new")}
+            >
               <PlusIcon size={18} />
               添加记录
             </Button>
@@ -623,6 +678,7 @@ export default function Dns() {
                 <Button
                   size="sm"
                   variant="secondary-destructive"
+                  disabled={recordSaving}
                   onClick={() => setDeleting(selectedRecords)}
                 >
                   删除
@@ -631,6 +687,7 @@ export default function Dns() {
                   size="sm"
                   disabled={
                     pending ||
+                    recordSaving ||
                     selectedRecords.some(
                       (item) => !["A", "AAAA", "CNAME"].includes(item.type),
                     )
@@ -656,6 +713,7 @@ export default function Dns() {
                   size="sm"
                   disabled={
                     pending ||
+                    recordSaving ||
                     selectedRecords.some(
                       (item) => !["A", "AAAA", "CNAME"].includes(item.type),
                     )
@@ -704,12 +762,12 @@ export default function Dns() {
                   <colgroup>
                     <col style={{ width: 44 }} />
                     <col style={{ width: "24%" }} />
-                    <col style={{ width: 80 }} />
+                    <col style={{ width: 70 }} />
                     <col />
-                    <col style={{ width: 136 }} />
-                    <col style={{ width: 104 }} />
                     <col style={{ width: 120 }} />
-                    <col style={{ width: 120 }} />
+                    <col style={{ width: 90 }} />
+                    <col style={{ width: 95 }} />
+                    <col style={{ width: 72 }} />
                   </colgroup>
                   <Table.Header>
                     <Table.Row>
@@ -740,103 +798,122 @@ export default function Dns() {
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
-                    {filtered.map((record) => (
-                      <Table.Row
-                        key={record.id}
-                        variant={
-                          selected.has(record.id) ? "selected" : "default"
-                        }
-                      >
-                        <Table.CheckCell
-                          label={`选择 ${record.name} ${record.type}`}
-                          checked={selected.has(record.id)}
-                          onCheckedChange={(checked) =>
-                            setSelected((current) => {
-                              const next = new Set(current);
-                              if (checked) next.add(record.id);
-                              else next.delete(record.id);
-                              return next;
-                            })
-                          }
-                        />
-                        <Table.Cell>
-                          <strong className="dns-name" title={record.name}>
-                            {record.name}
-                          </strong>
-                        </Table.Cell>
-                        <Table.Cell>{record.type}</Table.Cell>
-                        <Table.Cell>
-                          <span
-                            className="record-content"
-                            title={
-                              record.content || JSON.stringify(record.data)
+                    {filtered.map((record) => {
+                      const isEditing =
+                        editing !== null &&
+                        editing !== "new" &&
+                        editing.id === record.id;
+                      return (
+                        <Fragment key={record.id}>
+                          <Table.Row
+                            variant={
+                              selected.has(record.id) ? "selected" : "default"
                             }
                           >
-                            {record.content || JSON.stringify(record.data)}
-                          </span>
-                        </Table.Cell>
-                        <Table.Cell>
-                          <ProxyStatus
-                            record={record}
-                            pending={pending}
-                            onToggle={() =>
-                              run(async () => {
-                                await api(`${base}/records/${record.id}`, {
-                                  method: "PATCH",
-                                  body: { proxied: !record.proxied },
-                                });
-                                await refreshRecords();
-                              }, "代理状态已更新")
-                            }
-                          />
-                        </Table.Cell>
-                        <Table.Cell className="nowrap">
-                          {record.ttl === 1 ? "自动" : `${record.ttl} 秒`}
-                        </Table.Cell>
-                        <Table.Cell>
-                          <span
-                            className="record-comment muted"
-                            title={record.comment}
-                          >
-                            {record.comment || "—"}
-                          </span>
-                        </Table.Cell>
-                        <Table.Cell>
-                          <div className="row-actions">
-                            <button
-                              className="table-action"
-                              aria-label={`编辑 ${record.name} ${record.type}`}
-                              onClick={() => setEditing(record)}
-                            >
-                              编辑
-                            </button>
-                            <DropdownMenu>
-                              <DropdownMenu.Trigger
-                                render={
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    shape="square"
-                                    aria-label={`${record.name} ${record.type} 更多操作`}
-                                  />
+                            <Table.CheckCell
+                              label={`选择 ${record.name} ${record.type}`}
+                              checked={selected.has(record.id)}
+                              onCheckedChange={(checked) =>
+                                setSelected((current) => {
+                                  const next = new Set(current);
+                                  if (checked) next.add(record.id);
+                                  else next.delete(record.id);
+                                  return next;
+                                })
+                              }
+                            />
+                            <Table.Cell>
+                              <strong className="dns-name" title={record.name}>
+                                {record.name}
+                              </strong>
+                            </Table.Cell>
+                            <Table.Cell>{record.type}</Table.Cell>
+                            <Table.Cell>
+                              <span
+                                className="record-content"
+                                title={
+                                  record.content || JSON.stringify(record.data)
                                 }
                               >
-                                <DotsThreeIcon size={20} />
-                              </DropdownMenu.Trigger>
-                              <DropdownMenu.Content align="end">
-                                <DropdownMenu.Item
-                                  icon={TrashIcon}
-                                  variant="danger"
-                                  onClick={() => setDeleting([record])}
+                                {record.content || JSON.stringify(record.data)}
+                              </span>
+                            </Table.Cell>
+                            <Table.Cell>
+                              <ProxyStatus
+                                record={record}
+                                pending={pending || recordSaving || isEditing}
+                                onToggle={() =>
+                                  run(async () => {
+                                    await api(`${base}/records/${record.id}`, {
+                                      method: "PATCH",
+                                      body: { proxied: !record.proxied },
+                                    });
+                                    await refreshRecords();
+                                  }, "代理状态已更新")
+                                }
+                              />
+                            </Table.Cell>
+                            <Table.Cell className="nowrap">
+                              {record.ttl === 1 ? "自动" : `${record.ttl} 秒`}
+                            </Table.Cell>
+                            <Table.Cell>
+                              <span
+                                className="record-comment muted"
+                                title={record.comment}
+                              >
+                                {record.comment || "—"}
+                              </span>
+                            </Table.Cell>
+                            <Table.Cell>
+                              <div className="row-actions">
+                                <button
+                                  className="table-action"
+                                  disabled={recordSaving}
+                                  aria-label={`${isEditing ? "关闭" : "编辑"} ${record.name} ${record.type}`}
+                                  aria-expanded={isEditing}
+                                  aria-controls={
+                                    isEditing
+                                      ? `dns-editor-${record.id}`
+                                      : undefined
+                                  }
+                                  onClick={() =>
+                                    setEditing(isEditing ? null : record)
+                                  }
                                 >
-                                  删除记录
-                                </DropdownMenu.Item>
-                              </DropdownMenu.Content>
-                            </DropdownMenu>
-                          </div>
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
+                                  {isEditing ? "关闭" : "编辑"}
+                                </button>
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                          {isEditing && (
+                            <Table.Row
+                              className="dns-edit-row"
+                              id={`dns-editor-${record.id}`}
+                            >
+                              <Table.Cell colSpan={8}>
+                                <RecordForm
+                                  key={record.id}
+                                  record={record}
+                                  zoneName={zone.name}
+                                  base={base}
+                                  onClose={() =>
+                                    setEditing((current) =>
+                                      current &&
+                                      current !== "new" &&
+                                      current.id === record.id
+                                        ? null
+                                        : current,
+                                    )
+                                  }
+                                  onDelete={() => setDeleting([record])}
+                                  onBusyChange={setRecordSaving}
+                                />
+                              </Table.Cell>
+                            </Table.Row>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                   </Table.Body>
                 </Table>
               </div>
@@ -845,10 +922,9 @@ export default function Dns() {
               显示 {filtered.length} 条，共 {records.data?.length ?? 0} 条记录
             </div>
           </section>
-          {editing && (
+          {editing === "new" && (
             <RecordForm
-              key={editing === "new" ? "new" : editing.id}
-              record={editing === "new" ? undefined : editing}
+              key="new"
               zoneName={zone.name}
               base={base}
               onClose={() => setEditing(null)}
@@ -865,6 +941,12 @@ export default function Dns() {
                   method: "POST",
                   body: { deletes: deleting.map((item) => ({ id: item.id })) },
                 });
+                if (
+                  editing &&
+                  editing !== "new" &&
+                  deleting.some((item) => item.id === editing.id)
+                )
+                  setEditing(null);
                 await refreshRecords();
               }}
             >
