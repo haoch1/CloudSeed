@@ -325,7 +325,6 @@ function RecordForm({
         )}
         <FormDisclosure
           label="记录属性"
-          defaultOpen={Boolean(record?.comment)}
           accessory={
             <a
               className="record-attributes-docs"
