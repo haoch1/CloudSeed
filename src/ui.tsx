@@ -171,12 +171,14 @@ export function Modal({
   onClose,
   wide = false,
   busy = false,
+  className,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void;
   wide?: boolean;
   busy?: boolean;
+  className?: string;
 }) {
   return (
     <Dialog.Root
@@ -185,7 +187,7 @@ export function Modal({
         if (!open && !busy) onClose();
       }}
     >
-      <Dialog size={wide ? "xl" : "lg"} className="modal">
+      <Dialog size={wide ? "xl" : "lg"} className={`modal ${className ?? ""}`}>
         <div className="modal-heading">
           <Dialog.Title render={<Text variant="heading" size="lg" as="h2" />}>
             {title}
@@ -213,6 +215,7 @@ export function Confirm({
   confirmation,
   onConfirm,
   onClose,
+  className,
 }: {
   title: string;
   children: ReactNode;
@@ -220,11 +223,12 @@ export function Confirm({
   confirmation?: string;
   onConfirm: () => Promise<void>;
   onClose: () => void;
+  className?: string;
 }) {
   const [input, setInput] = useState("");
   const { pending, run } = useAction();
   return (
-    <Modal title={title} onClose={onClose} busy={pending}>
+    <Modal title={title} onClose={onClose} busy={pending} className={className}>
       <div className="modal-body">
         <div className="muted">{children}</div>
         {confirmation && (

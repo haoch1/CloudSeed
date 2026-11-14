@@ -1,7 +1,7 @@
 import { Select } from "@cloudflare/kumo/components/select";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -50,6 +50,8 @@ import type {
   ObjectItem,
   ObjectPage,
 } from "../../shared/types";
+
+const TextPreview = lazy(() => import("./r2/TextPreview"));
 
 function ObjectLinks({
   base,
@@ -153,8 +155,9 @@ function FilePreview({
   request: typeof api;
   onClose: () => void;
 }) {
+  const [mediaError, setMediaError] = useState(false);
   const link = useQuery({
-    queryKey: ["preview", base, item.key],
+    queryKey: ["preview", base, jurisdiction, item.key],
     queryFn: () =>
       request<{
         url: string;
@@ -168,8 +171,10 @@ function FilePreview({
   const isText = [
     "txt",
     "md",
+    "markdown",
     "json",
     "csv",
+    "tsv",
     "js",
     "ts",
     "tsx",
@@ -187,12 +192,31 @@ function FilePreview({
     "rs",
     "sql",
     "conf",
+    "ini",
+    "bash",
+    "zsh",
+    "c",
+    "cpp",
+    "h",
+    "swift",
+    "kt",
   ].includes(extension);
+  const isImage = [
+    "png", "jpg", "jpeg", "gif", "webp", "avif", "svg", "bmp", "ico",
+  ].includes(extension);
+  const isVideo = ["mp4", "webm", "mov", "m4v"].includes(extension);
+  const isAudio = ["mp3", "wav", "ogg", "m4a", "flac"].includes(extension);
   const text = useQuery({
-    queryKey: ["preview-text", base, item.key],
+    queryKey: ["preview-text", base, jurisdiction, item.key],
     queryFn: async ({ signal }) => {
-      const response = await fetch(link.data!.url, { signal });
-      if (!response.ok) throw new Error("预览加载失败");
+      let response: Response;
+      try {
+        response = await fetch(link.data!.url, { signal });
+      } catch (error) {
+        if (signal.aborted) throw error;
+        throw new Error("无法加载文件，请检查存储桶 CORS 和网络连接");
+      }
+      if (!response.ok) throw new Error(`预览加载失败 (${response.status})`);
       return response.text();
     },
     enabled: Boolean(link.data && isText && item.size <= 1024 ** 2),
@@ -203,6 +227,7 @@ function FilePreview({
       title={item.key.split("/").at(-1) || item.key}
       onClose={onClose}
       wide
+      className="file-preview-modal"
     >
       <div className="preview-meta">
         {formatBytes(item.size)}
@@ -221,35 +246,72 @@ function FilePreview({
           <Loading />
         ) : link.error ? (
           <ErrorState error={link.error} />
-        ) : [
-            "png",
-            "jpg",
-            "jpeg",
-            "gif",
-            "webp",
-            "avif",
-            "svg",
-            "bmp",
-            "ico",
-          ].includes(extension) ? (
-          <img alt={item.key} src={link.data!.url} />
-        ) : ["mp4", "webm", "mov", "m4v"].includes(extension) ? (
-          <video controls src={link.data!.url} />
-        ) : ["mp3", "wav", "ogg", "m4a", "flac"].includes(extension) ? (
-          <audio controls src={link.data!.url} />
-        ) : extension === "pdf" ? (
-          <iframe
-            title="PDF 预览"
-            sandbox="allow-scripts allow-same-origin allow-downloads"
-            src={link.data!.url}
-          />
+        ) : isImage || isVideo || isAudio || extension === "pdf" ? (
+          <div className="preview-frame">
+            <div className="preview-toolbar">
+              <div className="preview-toolbar-title">
+                <FileIcon size={18} />
+                {isImage
+                  ? "图片预览"
+                  : isVideo
+                    ? "视频预览"
+                    : isAudio
+                      ? "音频预览"
+                      : "PDF 预览"}
+              </div>
+              <a
+                className="preview-open-link"
+                href={link.data!.url}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                在新标签页打开
+              </a>
+            </div>
+            {mediaError ? (
+              <ErrorState error={new Error("文件加载失败，请检查网络或文件格式")} />
+            ) : extension === "pdf" ? (
+              <iframe
+                className="preview-pdf"
+                title="PDF 预览"
+                sandbox="allow-scripts allow-same-origin allow-downloads"
+                src={link.data!.url}
+              />
+            ) : (
+              <div className={`preview-media-stage ${isAudio ? "is-audio" : ""}`}>
+                {isImage ? (
+                  <img
+                    alt={item.key}
+                    src={link.data!.url}
+                    onError={() => setMediaError(true)}
+                  />
+                ) : isVideo ? (
+                  <video
+                    controls
+                    preload="metadata"
+                    src={link.data!.url}
+                    onError={() => setMediaError(true)}
+                  />
+                ) : (
+                  <audio
+                    controls
+                    preload="metadata"
+                    src={link.data!.url}
+                    onError={() => setMediaError(true)}
+                  />
+                )}
+              </div>
+            )}
+          </div>
         ) : isText && item.size <= 1024 ** 2 ? (
           text.isPending ? (
             <Loading />
           ) : text.error ? (
             <ErrorState error={text.error} />
           ) : (
-            <pre>{text.data}</pre>
+            <Suspense fallback={<Loading />}>
+              <TextPreview text={text.data ?? ""} extension={extension} />
+            </Suspense>
           )
         ) : (
           <EmptyState
