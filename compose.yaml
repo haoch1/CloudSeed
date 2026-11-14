@@ -1,0 +1,19 @@
+name: cloudseed
+services:
+  cloudseed:
+    image: ${CLOUDSEED_IMAGE:-ghcr.io/haoch1/cloudseed:latest}
+    container_name: cloudseed
+    restart: unless-stopped
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-3180}:3180"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL:-}
+      TRUST_PROXY: ${TRUST_PROXY:-false}
+      CLOUDSEED_ADMIN_USERNAME: ${CLOUDSEED_ADMIN_USERNAME:-admin}
+      CLOUDSEED_ADMIN_PASSWORD: ${CLOUDSEED_ADMIN_PASSWORD:-}
+    volumes:
+      - cloudseed-data:/app/data
+    stop_grace_period: 20s
+volumes:
+  cloudseed-data:
+    name: cloudseed-data
