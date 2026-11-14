@@ -59,7 +59,7 @@ Docker 部署需要 Docker Engine 与 Docker Compose v2。本地开发需要 Nod
 
 ## Docker 部署
 
-公开镜像为 `ghcr.io/haoch1/cloudseed:latest`，支持 `linux/amd64` 与 `linux/arm64`，Docker 会按服务器架构选择镜像
+公开镜像为 `ghcr.io/haoch1/cloudseed:latest`，支持 `linux/amd64` 架构。
 
 在服务器执行以下命令，下载部署配置并启动服务
 
