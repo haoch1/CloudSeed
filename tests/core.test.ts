@@ -226,6 +226,24 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
     assert.equal(add.status, 201);
     const account = (await add.json()) as { id: string; hasS3: boolean };
     assert.equal(account.hasS3, true);
+    assert.equal(
+      (
+        await request("/accounts", "POST", {
+          name: "测试账号",
+          accountId,
+          token: "secret-cloudflare-token",
+        })
+      ).status,
+      409,
+    );
+    const accountFailure = store.listAudit(1).items[0];
+    assert.equal(accountFailure.action, "添加账号");
+    assert.equal(accountFailure.accountName, "测试账号");
+    assert.equal(accountFailure.resource, accountId);
+    assert.equal(accountFailure.status, "failed");
+    assert.ok(
+      !JSON.stringify(accountFailure).includes("secret-cloudflare-token"),
+    );
     assert.ok(!JSON.stringify(account).includes("credentials"));
     assert.ok(
       !JSON.stringify(await (await request("/accounts")).json()).includes(
@@ -248,6 +266,109 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
       200,
     );
     assert.equal(fixture.records[0].proxied, false);
+    assert.equal(store.listAudit(1).items[0].action, "关闭 DNS 代理");
+    assert.equal(store.listAudit(1).items[0].resource, "example.com (A)");
+
+    const dnsBase = `/accounts/${account.id}/dns/zones/${zoneId}`;
+    assert.equal(
+      (
+        await request(`${dnsBase}/batch`, "POST", {
+          patches: [
+            { id: recordId, proxied: true },
+            { id: "d".repeat(32), proxied: false },
+          ],
+        })
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "批量调整 DNS 代理");
+    assert.equal(
+      store.listAudit(1).items[0].detail,
+      "开启代理 1 条，关闭代理 1 条",
+    );
+
+    assert.equal(
+      (
+        await request(`${dnsBase}/batch`, "POST", {
+          deletes: [{ id: "f".repeat(32) }],
+        })
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "删除 DNS 记录");
+    assert.equal(store.listAudit(1).items[0].resource, "example.com (TXT)");
+
+    assert.equal(
+      (
+        await request(`${dnsBase}/batch`, "POST", {
+          deletes: [{ id: "d".repeat(32) }, { id: "e".repeat(32) }],
+        })
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "批量删除 DNS 记录");
+    assert.equal(store.listAudit(1).items[0].detail, "删除 2 条");
+
+    const dnsImport = await request(`${dnsBase}/batch`, "POST", {
+      posts: ["one", "two"].map((name) => ({
+        type: "A",
+        name: `${name}.example.com`,
+        content: "192.0.2.1",
+        ttl: 1,
+      })),
+    });
+    assert.equal(dnsImport.status, 200);
+    assert.equal(store.listAudit(1).items[0].action, "批量新增 DNS 记录");
+    assert.equal(store.listAudit(1).items[0].detail, "新增 2 条");
+    const imported = (await dnsImport.json()) as { posts: { id: string }[] };
+    assert.equal(
+      (
+        await request(`${dnsBase}/batch`, "POST", {
+          deletes: [{ id: imported.posts[0].id }],
+          patches: [{ id: imported.posts[1].id, proxied: false }],
+          posts: [
+            {
+              type: "A",
+              name: "three.example.com",
+              content: "192.0.2.3",
+              ttl: 1,
+            },
+          ],
+        })
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "批量变更 DNS 记录");
+    assert.equal(
+      store.listAudit(1).items[0].detail,
+      "删除 1 条，关闭代理 1 条，新增 1 条",
+    );
+
+    globalThis.fetch = async (input, init) => {
+      if (new URL(String(input)).pathname.endsWith("/dns_records/batch"))
+        return new Response(
+          JSON.stringify({
+            success: false,
+            errors: [{ code: 10000, message: "denied" }],
+          }),
+          { status: 403 },
+        );
+      return fixture.upstreamFetch(input, init);
+    };
+    assert.equal(
+      (
+        await request(`${dnsBase}/batch`, "POST", {
+          deletes: [{ id: recordId }],
+        })
+      ).status,
+      403,
+    );
+    const dnsFailure = store.listAudit(1).items[0];
+    assert.equal(dnsFailure.action, "删除 DNS 记录");
+    assert.equal(dnsFailure.accountName, "测试账号");
+    assert.equal(dnsFailure.resource, `example.com / ${recordId}`);
+    assert.equal(dnsFailure.status, "failed");
+    globalThis.fetch = fixture.upstreamFetch;
     assert.equal(
       (
         await request(
@@ -325,6 +446,21 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
     };
     assert.ok(session.url.includes(".eu.r2.cloudflarestorage.com"));
     assert.equal(session.headers["If-None-Match"], "*");
+    assert.equal(
+      (
+        await request(
+          `${base}/uploads/${session.id}/complete?jurisdiction=eu`,
+          "POST",
+          {},
+        )
+      ).status,
+      404,
+    );
+    const uploadFailure = store.listAudit(1).items[0];
+    assert.equal(uploadFailure.action, "上传 R2 对象");
+    assert.equal(uploadFailure.accountName, "测试账号");
+    assert.equal(uploadFailure.resource, "assets/new.txt");
+    assert.equal(uploadFailure.status, "failed");
     fixture.objects.set("assets/new.txt", {
       size: 3,
       metadata: { "cloudseed-upload": session.id },
@@ -339,6 +475,49 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
       ).status,
       200,
     );
+    const overwrite = await request(`${base}/uploads?jurisdiction=eu`, "POST", {
+      key: "new.txt",
+      size: 3,
+      contentType: "text/plain",
+      overwrite: true,
+    });
+    const overwriteSession = (await overwrite.json()) as { id: string };
+    fixture.objects.set("assets/new.txt", {
+      size: 3,
+      metadata: { "cloudseed-upload": overwriteSession.id },
+    });
+    assert.equal(
+      (
+        await request(
+          `${base}/uploads/${overwriteSession.id}/complete?jurisdiction=eu`,
+          "POST",
+          {},
+        )
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "覆盖 R2 对象");
+    const folder = await request(`${base}/uploads?jurisdiction=eu`, "POST", {
+      key: "folder/",
+      size: 0,
+      contentType: "application/octet-stream",
+    });
+    const folderSession = (await folder.json()) as { id: string };
+    fixture.objects.set("assets/folder/", {
+      size: 0,
+      metadata: { "cloudseed-upload": folderSession.id },
+    });
+    assert.equal(
+      (
+        await request(
+          `${base}/uploads/${folderSession.id}/complete?jurisdiction=eu`,
+          "POST",
+          {},
+        )
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "创建 R2 文件夹");
     assert.equal(
       (
         await request(
@@ -383,6 +562,40 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
       ).status,
       409,
     );
+    assert.equal(
+      (
+        await request(`${base}/delete-objects`, "POST", {
+          keys: ["images/cover.webp"],
+        })
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "删除 R2 对象");
+    assert.equal(
+      store.listAudit(1).items[0].resource,
+      "assets/images/cover.webp",
+    );
+    fixture.deleteFailures.add("blocked.txt");
+    assert.equal(
+      (
+        await request(`${base}/delete-objects`, "POST", {
+          keys: ["blocked.txt"],
+        })
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].status, "failed");
+    assert.equal(
+      (
+        await request(`${base}/delete-objects`, "POST", {
+          keys: ["readme.txt", "blocked.txt"],
+        })
+      ).status,
+      200,
+    );
+    assert.equal(store.listAudit(1).items[0].action, "批量删除 R2 对象");
+    assert.equal(store.listAudit(1).items[0].status, "partial");
+    assert.equal(store.listAudit(1).items[0].detail, "成功 1，失败 1");
     assert.equal((await request("/auth/logout", "POST")).status, 200);
     assert.equal((await request("/accounts")).status, 401);
   } finally {

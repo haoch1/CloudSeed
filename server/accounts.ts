@@ -45,6 +45,11 @@ export function accountRoutes(store: Store): Router {
   router.get("/", (_request, response) => response.json(store.listAccounts()));
   router.post("/", async (request, response) => {
     const input = accountSchema.parse(request.body);
+    response.locals.account = { name: input.name };
+    response.locals.auditAttempt = {
+      action: "添加账号",
+      resource: input.accountId,
+    };
     if (!input.token) throw new ApiError(400, "请填写 Cloudflare API Token");
     if (Boolean(input.accessKeyId) !== Boolean(input.secretAccessKey))
       throw new ApiError(
@@ -74,7 +79,13 @@ export function accountRoutes(store: Store): Router {
   router.patch("/:id", async (request, response) => {
     const account = store.getAccount(String(request.params.id));
     if (!account) throw new ApiError(404, "账号不存在");
+    response.locals.account = account;
+    response.locals.auditAttempt = {
+      action: "更新账号",
+      resource: account.accountId,
+    };
     const input = accountSchema.parse(request.body);
+    response.locals.auditAttempt.resource = input.accountId;
     const token = input.token || account.credentials.token;
     const credentials = await resolveS3(
       {
@@ -114,6 +125,11 @@ export function accountRoutes(store: Store): Router {
   router.post("/:id/verify", async (request, response) => {
     const account = store.getAccount(String(request.params.id));
     if (!account) throw new ApiError(404, "账号不存在");
+    response.locals.account = account;
+    response.locals.auditAttempt = {
+      action: "验证账号连接",
+      resource: account.accountId,
+    };
     const client = new Cloudflare(account.credentials.token);
     const results = await Promise.allSettled([
       client.call(`/zones?account.id=${account.accountId}&per_page=1`),
@@ -130,6 +146,11 @@ export function accountRoutes(store: Store): Router {
   router.delete("/:id", (request, response) => {
     const account = store.getAccount(String(request.params.id));
     if (!account) throw new ApiError(404, "账号不存在");
+    response.locals.account = account;
+    response.locals.auditAttempt = {
+      action: "移除面板账号",
+      resource: account.accountId,
+    };
     store.db.prepare("DELETE FROM accounts WHERE id = ?").run(account.id);
     store.audit("移除面板账号", account.name, account.accountId);
     response.json({ ok: true });

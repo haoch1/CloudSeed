@@ -3,6 +3,12 @@ import { z } from "zod";
 import { accountClient, ApiError, cfId, dnsSchema } from "./cloudflare.js";
 import type { Store } from "./store.js";
 import type { DnsRecord, Zone } from "../shared/types.js";
+import {
+  describeDnsBatch,
+  describeDnsUpdate,
+  dnsRecordResource,
+  type DnsBatchResult,
+} from "../shared/audit.js";
 
 export function dnsRoutes(store: Store): Router {
   const router = Router({ mergeParams: true });
@@ -41,14 +47,20 @@ export function dnsRoutes(store: Store): Router {
   });
   router.post("/zones/:zone/records", async (request, response) => {
     const input = dnsSchema.parse(request.body);
-    const { result } = await accountClient(response.locals.account).call(
-      `/zones/${response.locals.zoneId}/dns_records`,
-      { method: "POST", body: input },
-    );
+    response.locals.auditAttempt = {
+      action: "新增 DNS 记录",
+      resource: dnsRecordResource(input, response.locals.zoneName),
+    };
+    const { result } = await accountClient(
+      response.locals.account,
+    ).call<DnsRecord>(`/zones/${response.locals.zoneId}/dns_records`, {
+      method: "POST",
+      body: input,
+    });
     store.audit(
       "新增 DNS 记录",
       response.locals.account.name,
-      `${input.name} (${input.type})`,
+      dnsRecordResource(result, `${input.name} (${input.type})`),
     );
     response.status(201).json(result);
   });
@@ -57,19 +69,32 @@ export function dnsRoutes(store: Store): Router {
     const input = z.object(dnsSchema.shape).partial().parse(request.body);
     if (!Object.keys(input).length)
       throw new ApiError(400, "未提供要修改的字段");
-    const { result } = await accountClient(response.locals.account).call(
+    response.locals.auditAttempt = describeDnsUpdate(
+      input,
+      response.locals.zoneName,
+      record,
+    );
+    const { result } = await accountClient(
+      response.locals.account,
+    ).call<DnsRecord>(
       `/zones/${response.locals.zoneId}/dns_records/${record}`,
       { method: "PATCH", body: input },
     );
-    store.audit(
-      "修改 DNS 记录",
-      response.locals.account.name,
-      `${response.locals.zoneName} / ${record}`,
+    const audit = describeDnsUpdate(
+      input,
+      response.locals.zoneName,
+      record,
+      result,
     );
+    store.audit(audit.action, response.locals.account.name, audit.resource);
     response.json(result);
   });
   router.delete("/zones/:zone/records/:record", async (request, response) => {
     const record = cfId.parse(request.params.record);
+    response.locals.auditAttempt = {
+      action: "删除 DNS 记录",
+      resource: `${response.locals.zoneName} / ${record}`,
+    };
     await accountClient(response.locals.account).call(
       `/zones/${response.locals.zoneId}/dns_records/${record}`,
       { method: "DELETE" },
@@ -101,16 +126,23 @@ export function dnsRoutes(store: Store): Router {
       (input.posts?.length ?? 0);
     if (count < 1 || count > 200)
       throw new ApiError(400, "每批操作 1–200 条记录");
-    const { result } = await accountClient(response.locals.account).call(
+    response.locals.auditAttempt = describeDnsBatch(
+      input,
+      response.locals.zoneName,
+    );
+    const { result } = await accountClient(
+      response.locals.account,
+    ).call<DnsBatchResult>(
       `/zones/${response.locals.zoneId}/dns_records/batch`,
       { method: "POST", body: input },
     );
+    const audit = describeDnsBatch(input, response.locals.zoneName, result);
     store.audit(
-      "批量修改 DNS",
+      audit.action,
       response.locals.account.name,
-      response.locals.zoneName,
+      audit.resource,
       "success",
-      `${count} 条记录`,
+      audit.detail,
     );
     response.json(result);
   });

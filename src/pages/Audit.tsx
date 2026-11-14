@@ -12,6 +12,7 @@ import {
   Status,
 } from "../ui";
 import type { AuditEntry } from "../../shared/types";
+import { displayAuditAction } from "../../shared/audit";
 
 export default function Audit() {
   const [page, setPage] = useState(1);
@@ -60,14 +61,24 @@ export default function Audit() {
                       <Table.Cell className="nowrap">
                         {formatDate(item.createdAt)}
                       </Table.Cell>
-                      <Table.Cell className="nowrap">{item.action}</Table.Cell>
+                      <Table.Cell className="nowrap">
+                        {displayAuditAction(
+                          item.action,
+                          item.status,
+                          item.resource,
+                        )}
+                      </Table.Cell>
                       <Table.Cell className="nowrap">
                         {item.accountName || "—"}
                       </Table.Cell>
                       <Table.Cell>
                         <span className="break-all">{item.resource}</span>
-                        {item.detail && (
-                          <small className="cell-note">{item.detail}</small>
+                        {(item.detail || item.action === "批量修改 DNS") && (
+                          <small className="cell-note">
+                            {item.detail}
+                            {item.action === "批量修改 DNS" &&
+                              `${item.detail ? "；" : ""}旧记录未保存具体操作类型`}
+                          </small>
                         )}
                       </Table.Cell>
                       <Table.Cell>

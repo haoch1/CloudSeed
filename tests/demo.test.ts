@@ -2,8 +2,10 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { demoRequest } from "../src/demo.js";
 import { r2ObjectUrl } from "../src/api.js";
+import { describeDnsBatch, displayAuditAction } from "../shared/audit.js";
 import type {
   Account,
+  AuditEntry,
   Bucket,
   DnsRecord,
   ObjectPage,
@@ -18,6 +20,41 @@ test("R2 自定义域直链保留目录并编码文件名", () => {
   assert.equal(
     r2ObjectUrl("cdn.example.com", "nested/a%2Fb.txt"),
     "https://cdn.example.com/nested/a%252Fb.txt",
+  );
+});
+
+test("旧记录不猜测 DNS 操作，旧上传失败使用可识别的操作名称", () => {
+  assert.equal(
+    displayAuditAction("批量修改 DNS", "success", "example.com"),
+    "DNS 操作（旧记录）",
+  );
+  assert.equal(
+    displayAuditAction(
+      "POST",
+      "failed",
+      "/api/accounts/id/r2/buckets/assets/uploads/job/complete",
+    ),
+    "上传 R2 对象",
+  );
+  assert.equal(displayAuditAction("POST", "failed", "/api/unknown"), "POST");
+});
+
+test("批量接口未返回记录详情时保留操作类型并回退到记录 ID", () => {
+  assert.deepEqual(
+    describeDnsBatch({ deletes: [{ id: "record-id" }] }, "example.com", {}),
+    {
+      action: "删除 DNS 记录",
+      resource: "example.com / record-id",
+      detail: "",
+    },
+  );
+  assert.equal(
+    describeDnsBatch(
+      { posts: [{ name: "www.example.com", type: "A" }] },
+      "example.com",
+      { posts: [{ id: "record-id" }] },
+    ).resource,
+    "www.example.com (A)",
   );
 });
 
@@ -38,6 +75,18 @@ test("演示直接进入、账号数据隔离、DNS 修改和浏览器文件操�
   assert.equal(
     (await demoRequest<DnsRecord[]>(`${base}/records`))[0].proxied,
     false,
+  );
+  const latestAudit = async () =>
+    (await demoRequest<{ items: AuditEntry[] }>("/audit?page=1")).items[0];
+  assert.equal((await latestAudit()).action, "关闭 DNS 代理");
+  await demoRequest(`${base}/batch`, {
+    method: "POST",
+    body: { deletes: [{ id: original[3].id }] },
+  });
+  assert.equal((await latestAudit()).action, "删除 DNS 记录");
+  assert.equal(
+    (await latestAudit()).resource,
+    `${original[3].name} (${original[3].type})`,
   );
   const otherZones = await demoRequest<Zone[]>(
     `/accounts/${accounts[1].id}/dns/zones`,
@@ -78,6 +127,16 @@ test("演示直接进入、账号数据隔离、DNS 修改和浏览器文件操�
     }),
     /文件已存在/,
   );
+  await demoRequest(`${bucketBase}/demo-upload`, {
+    method: "POST",
+    body: { file: new Blob(["new"]), key: "demo.txt", overwrite: true },
+  });
+  assert.equal((await latestAudit()).action, "覆盖 R2 对象");
+  await demoRequest(`${bucketBase}/demo-upload`, {
+    method: "POST",
+    body: { file: new Blob([]), key: "folder/", overwrite: false },
+  });
+  assert.equal((await latestAudit()).action, "创建 R2 文件夹");
   await demoRequest(`${bucketBase}/delete-objects`, {
     method: "POST",
     body: { keys: ["demo.txt"] },
@@ -87,4 +146,6 @@ test("演示直接进入、账号数据隔离、DNS 修改和浏览器文件操�
       (file) => file.key === "demo.txt",
     ),
   );
+  assert.equal((await latestAudit()).action, "删除 R2 对象");
+  assert.equal((await latestAudit()).resource, `${buckets[0].name}/demo.txt`);
 });

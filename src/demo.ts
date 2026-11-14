@@ -7,6 +7,12 @@ import type {
   ObjectItem,
   Zone,
 } from "../shared/types";
+import {
+  describeDnsBatch,
+  describeDnsUpdate,
+  dnsRecordResource,
+  r2UploadAction,
+} from "../shared/audit";
 
 interface DemoObject {
   item: ObjectItem;
@@ -280,14 +286,14 @@ const audit: AuditEntry[] = [
     createdAt: new Date(Date.now() - 3600000).toISOString(),
   },
 ];
-function log(action: string, account: string, resource: string) {
+function log(action: string, account: string, resource: string, detail = "") {
   audit.unshift({
     id: (audit[0]?.id ?? 0) + 1,
     action,
     accountName: accounts.find((item) => item.id === account)?.name ?? "",
     resource,
     status: "success",
-    detail: "",
+    detail,
     createdAt: new Date().toISOString(),
   });
 }
@@ -334,7 +340,7 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
       };
       accounts.push(account);
       zones.set(account.id, []);
-      log("添加账号", account.id, account.name);
+      log("添加账号", account.id, account.accountId);
       return account;
     }
   }
@@ -346,12 +352,12 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
     if (method === "PATCH") {
       account.name = body.name;
       account.accountId = body.accountId;
-      log("更新账号", account.id, account.name);
+      log("更新账号", account.id, account.accountId);
       return account;
     }
     if (method === "DELETE") {
+      log("移除面板账号", account.id, account.accountId);
       accounts.splice(accounts.indexOf(account), 1);
-      log("移除账号", account.id, account.name);
       return { ok: true };
     }
   }
@@ -372,14 +378,20 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
       const patches = new Map<string, Partial<DnsRecord>>(
         (body.patches ?? []).map((item: DnsRecord) => [item.id, item]),
       );
-      records.set(zone.id, [
-        ...current
-          .filter((item) => !deletes.has(item.id))
-          .map((item) => ({ ...item, ...patches.get(item.id) })),
-        ...(body.posts ?? []).map((item: DnsRecord) => ({ ...item, id: id() })),
-      ]);
-      log("批量修改 DNS", account.id, zone.name);
-      return { ok: true };
+      const deleted = current.filter((item) => deletes.has(item.id));
+      const remaining = current
+        .filter((item) => !deletes.has(item.id))
+        .map((item) => ({ ...item, ...patches.get(item.id) }));
+      const patched = remaining.filter((item) => patches.has(item.id));
+      const posted = (body.posts ?? []).map((item: DnsRecord) => ({
+        ...item,
+        id: id(),
+      }));
+      records.set(zone.id, [...remaining, ...posted]);
+      const result = { deletes: deleted, patches: patched, posts: posted };
+      const audit = describeDnsBatch(body, zone.name, result);
+      log(audit.action, account.id, audit.resource, audit.detail);
+      return result;
     }
     if (segments.length === 6) {
       if (method === "GET") return current;
@@ -401,7 +413,8 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
     );
     if (method === "PATCH") {
       Object.assign(record, body);
-      log("修改 DNS 记录", account.id, record.name);
+      const audit = describeDnsUpdate(body, zone.name, record.id, record);
+      log(audit.action, account.id, audit.resource);
       return record;
     }
     if (method === "DELETE") {
@@ -409,7 +422,7 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
         zone.id,
         current.filter((item) => item.id !== record.id),
       );
-      log("删除 DNS 记录", account.id, record.name);
+      log("删除 DNS 记录", account.id, dnsRecordResource(record, zone.name));
       return { ok: true };
     }
   }
@@ -460,11 +473,16 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
   }
   if (action === "demo-upload") {
     options.signal?.throwIfAborted();
-    if (bucket.objects.has(body.key) && !body.overwrite)
+    const existing = bucket.objects.has(body.key);
+    if (existing && !body.overwrite)
       throw new Error("文件已存在，请选择覆盖或更改文件名");
     if (!(body.file instanceof Blob)) throw new Error("请选择文件");
     addObject(bucket, body.key, body.file);
-    log("上传 R2 对象", account.id, `${bucket.bucket.name}/${body.key}`);
+    log(
+      r2UploadAction(body.key, body.file.size, existing),
+      account.id,
+      `${bucket.bucket.name}/${body.key}`,
+    );
     return { ok: true };
   }
   if (action === "link") {
@@ -475,9 +493,12 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
     const keys = body.keys as string[];
     keys.forEach((key) => bucket.objects.delete(key));
     log(
-      "删除 R2 对象",
+      keys.length === 1 ? "删除 R2 对象" : "批量删除 R2 对象",
       account.id,
-      `${bucket.bucket.name} / ${keys.length} 个对象`,
+      keys.length === 1
+        ? `${bucket.bucket.name}/${keys[0]}`
+        : bucket.bucket.name,
+      `成功 ${keys.length}，失败 0`,
     );
     return { deleted: keys, errors: [] };
   }
@@ -503,13 +524,21 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
   if (action === "cors" || action === "lifecycle") {
     if (method === "GET") return bucket[action];
     bucket[action] = { rules: body.rules };
-    log(`更新 R2 ${action}`, account.id, bucket.bucket.name);
+    log(
+      action === "cors" ? "更新 R2 CORS 规则" : "更新 R2 生命周期规则",
+      account.id,
+      bucket.bucket.name,
+    );
     return { ok: true };
   }
   if (action === "domains/managed") {
     if (method === "PUT") {
       bucket.managed.enabled = body.enabled;
-      log("更新 r2.dev 访问", account.id, bucket.bucket.name);
+      log(
+        body.enabled ? "开启 r2.dev 访问" : "关闭 r2.dev 访问",
+        account.id,
+        bucket.bucket.name,
+      );
     }
     return bucket.managed;
   }

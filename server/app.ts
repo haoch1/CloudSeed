@@ -11,6 +11,10 @@ import { authRoutes, requireAuth } from "./auth.js";
 import { accountRoutes } from "./accounts.js";
 import { dnsRoutes } from "./dns.js";
 import { r2Routes, s3Client } from "./r2.js";
+import {
+  auditActionForRequest,
+  type AuditDescription,
+} from "../shared/audit.js";
 
 export function createApp(store: Store, r2Client = s3Client) {
   const app = express();
@@ -87,35 +91,46 @@ export function createApp(store: Store, r2Client = s3Client) {
     );
   }
   const errors: ErrorRequestHandler = (error, request, response, _next) => {
-    if (error instanceof ZodError)
-      return void response
-        .status(400)
-        .json({ error: error.issues.map((issue) => issue.message).join("；") });
     const upstreamStatus = error.$metadata?.httpStatusCode as
-      number | undefined;
+      | number
+      | undefined;
     const status =
-      error instanceof ApiError
-        ? error.status
-        : upstreamStatus === 404
-          ? 404
-          : upstreamStatus === 403
-            ? 403
-            : upstreamStatus === 412
-              ? 409
-              : 500;
+      error instanceof ZodError || error.type === "entity.parse.failed"
+        ? 400
+        : error instanceof ApiError
+          ? error.status
+          : upstreamStatus === 404
+            ? 404
+            : upstreamStatus === 403
+              ? 403
+              : upstreamStatus === 412
+                ? 409
+                : 500;
     const message =
-      error instanceof ApiError
-        ? error.message
-        : upstreamStatus
-          ? `R2 ${error.name}，${error.message}`
-          : error.type === "entity.parse.failed"
-            ? "JSON 格式不正确"
-            : "服务处理失败，请查看配置后重试";
-    if (!["GET", "HEAD"].includes(request.method) && status >= 400)
-      store.audit(request.method, "", request.path, "failed", message);
-    response
-      .status(error.type === "entity.parse.failed" ? 400 : status)
-      .json({ error: message });
+      error instanceof ZodError
+        ? error.issues.map((issue) => issue.message).join("；")
+        : error instanceof ApiError
+          ? error.message
+          : upstreamStatus
+            ? `R2 ${error.name}，${error.message}`
+            : error.type === "entity.parse.failed"
+              ? "JSON 格式不正确"
+              : "服务处理失败，请查看配置后重试";
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && status >= 400) {
+      const attempt = response.locals.auditAttempt as
+        | Partial<AuditDescription>
+        | undefined;
+      store.audit(
+        attempt?.action ??
+          auditActionForRequest(request.method, request.path) ??
+          request.method,
+        response.locals.account?.name ?? "",
+        attempt?.resource ?? request.path,
+        "failed",
+        [attempt?.detail, message].filter(Boolean).join("；"),
+      );
+    }
+    response.status(status).json({ error: message });
   };
   app.use(errors);
   return app;

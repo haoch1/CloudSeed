@@ -25,6 +25,7 @@ import {
 import type { ManagedAccount } from "./cloudflare.js";
 import type { Store } from "./store.js";
 import type { Bucket, ObjectPage, Zone } from "../shared/types.js";
+import { r2UploadAction } from "../shared/audit.js";
 
 const objectKey = z
   .string()
@@ -114,6 +115,10 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
           .optional(),
       })
       .parse(request.body);
+    response.locals.auditAttempt = {
+      action: "创建 R2 桶",
+      resource: input.name,
+    };
     const { result } = await accountClient(response.locals.account).call(
       `/accounts/${response.locals.account.accountId}/r2/buckets`,
       {
@@ -131,6 +136,10 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
   });
   router.delete("/buckets/:bucket", async (request, response) => {
     const input = z.object({ confirmation: z.string() }).parse(request.body);
+    response.locals.auditAttempt = {
+      action: "删除 R2 桶",
+      resource: response.locals.bucket,
+    };
     if (input.confirmation !== response.locals.bucket)
       throw new ApiError(400, "请输入完整桶名称确认删除");
     await accountClient(response.locals.account).call(
@@ -183,6 +192,10 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         download: z.boolean().default(false),
       })
       .parse(request.body);
+    response.locals.auditAttempt = {
+      action: "生成 R2 访问链接",
+      resource: `${response.locals.bucket}/${input.key}`,
+    };
     const filename = input.key.split("/").at(-1) || "download";
     const command = new GetObjectCommand({
       Bucket: response.locals.bucket,
@@ -204,6 +217,17 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
     const input = z
       .object({ keys: z.array(objectKey).min(1).max(1000) })
       .parse(request.body);
+    const action =
+      input.keys.length === 1 ? "删除 R2 对象" : "批量删除 R2 对象";
+    const resource =
+      input.keys.length === 1
+        ? `${response.locals.bucket}/${input.keys[0]}`
+        : response.locals.bucket;
+    response.locals.auditAttempt = {
+      action,
+      resource,
+      detail: `待删除 ${input.keys.length} 个对象`,
+    };
     const result = await clientFactory(
       response.locals.account,
       response.locals.jurisdiction,
@@ -216,12 +240,13 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
     const errors =
       result.Errors?.map((item) => ({ key: item.Key, error: item.Message })) ??
       [];
+    const deletedCount = result.Deleted?.length ?? 0;
     store.audit(
-      "删除 R2 对象",
+      action,
       response.locals.account.name,
-      response.locals.bucket,
-      errors.length ? "partial" : "success",
-      `成功 ${result.Deleted?.length ?? 0}，失败 ${errors.length}`,
+      resource,
+      errors.length ? (deletedCount ? "partial" : "failed") : "success",
+      `成功 ${deletedCount}，失败 ${errors.length}`,
     );
     response.json({
       deleted: result.Deleted?.map((item) => item.Key) ?? [],
@@ -237,6 +262,10 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         move: z.boolean().default(false),
       })
       .parse(request.body);
+    response.locals.auditAttempt = {
+      action: input.move ? "移动 R2 对象" : "复制 R2 对象",
+      resource: `${response.locals.bucket}/${input.key} → ${input.destinationBucket}/${input.destinationKey}`,
+    };
     if (
       input.key === input.destinationKey &&
       input.destinationBucket === response.locals.bucket
@@ -340,6 +369,10 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         overwrite: z.boolean().default(false),
       })
       .parse(request.body);
+    response.locals.auditAttempt = {
+      action: r2UploadAction(input.key, input.size, false),
+      resource: `${response.locals.bucket}/${input.key}`,
+    };
     const s3 = clientFactory(
       response.locals.account,
       response.locals.jurisdiction,
@@ -362,6 +395,11 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
       )
         throw error;
     }
+    response.locals.auditAttempt.action = r2UploadAction(
+      input.key,
+      input.size,
+      Boolean(expectedEtag),
+    );
     const id = randomUUID();
     let uploadId: string | undefined;
     let url: string | undefined;
@@ -444,6 +482,17 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
       ) as unknown as Upload | undefined;
     if (!upload) return next(new ApiError(404, "上传任务不存在"));
     response.locals.upload = upload;
+    response.locals.auditAttempt = {
+      action:
+        request.method === "DELETE"
+          ? "取消 R2 上传"
+          : r2UploadAction(
+              upload.object_key,
+              upload.size,
+              Boolean(upload.expected_etag),
+            ),
+      resource: `${upload.bucket}/${upload.object_key}`,
+    };
     next();
   });
   router.post(
@@ -539,7 +588,11 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         .prepare("UPDATE uploads SET completed = 1 WHERE id = ?")
         .run(upload.id);
       store.audit(
-        "上传 R2 对象",
+        r2UploadAction(
+          upload.object_key,
+          upload.size,
+          Boolean(upload.expected_etag),
+        ),
         response.locals.account.name,
         `${upload.bucket}/${upload.object_key}`,
         "success",
@@ -602,6 +655,12 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
       const input = z
         .object({ rules: z.array(z.record(z.string(), z.unknown())).max(100) })
         .parse(request.body);
+      const action =
+        setting === "cors" ? "更新 R2 CORS 规则" : "更新 R2 生命周期规则";
+      response.locals.auditAttempt = {
+        action,
+        resource: response.locals.bucket,
+      };
       await accountClient(response.locals.account).call(
         `${bucketPath(response.locals.account, response.locals.bucket)}/${setting}`,
         {
@@ -610,16 +669,14 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
           jurisdiction: response.locals.jurisdiction,
         },
       );
-      store.audit(
-        `更新 R2 ${setting}`,
-        response.locals.account.name,
-        response.locals.bucket,
-      );
+      store.audit(action, response.locals.account.name, response.locals.bucket);
       response.json({ ok: true });
     });
   }
   router.put("/buckets/:bucket/domains/managed", async (request, response) => {
     const input = z.object({ enabled: z.boolean() }).parse(request.body);
+    const action = input.enabled ? "开启 r2.dev 访问" : "关闭 r2.dev 访问";
+    response.locals.auditAttempt = { action, resource: response.locals.bucket };
     const { result } = await accountClient(response.locals.account).call(
       `${bucketPath(response.locals.account, response.locals.bucket)}/domains/managed`,
       {
@@ -628,11 +685,7 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         jurisdiction: response.locals.jurisdiction,
       },
     );
-    store.audit(
-      "更新 r2.dev 访问",
-      response.locals.account.name,
-      response.locals.bucket,
-    );
+    store.audit(action, response.locals.account.name, response.locals.bucket);
     response.json(result);
   });
   router.post("/buckets/:bucket/domains/custom", async (request, response) => {
@@ -644,6 +697,10 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         minTLS: z.enum(["1.2", "1.3"]).default("1.2"),
       })
       .parse(request.body);
+    response.locals.auditAttempt = {
+      action: "绑定 R2 自定义域名",
+      resource: input.domain,
+    };
     const { result: zone } = await accountClient(response.locals.account).call<
       Zone & { account: { id: string } }
     >(`/zones/${input.zoneId}`);
@@ -671,6 +728,10 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
     "/buckets/:bucket/domains/custom/:domain",
     async (request, response) => {
       const domain = z.string().max(253).parse(request.params.domain);
+      response.locals.auditAttempt = {
+        action: "解绑 R2 自定义域名",
+        resource: domain,
+      };
       await accountClient(response.locals.account).call(
         `${bucketPath(response.locals.account, response.locals.bucket)}/domains/custom/${encodeURIComponent(domain)}`,
         { method: "DELETE", jurisdiction: response.locals.jurisdiction },

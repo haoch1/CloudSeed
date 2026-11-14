@@ -2,6 +2,7 @@ import { S3Client } from "@aws-sdk/client-s3";
 import { randomUUID } from "node:crypto";
 import type { ManagedAccount } from "../server/cloudflare.js";
 import { s3Client } from "../server/r2.js";
+import type { DnsRecord } from "../shared/types.js";
 
 export const accountId = "a".repeat(32);
 export const zoneId = "b".repeat(32);
@@ -16,7 +17,7 @@ export function createFixtures() {
       parts: Map<number, Buffer>;
     }
   >();
-  const records = [
+  const records: DnsRecord[] = [
     {
       id: recordId,
       type: "A",
@@ -66,6 +67,7 @@ export function createFixtures() {
     ],
     ["assets/images/cover.webp", { size: 143360, metadata: {} }],
   ]);
+  const deleteFailures = new Set<string>();
   const calls: {
     path: string;
     method: string;
@@ -102,7 +104,30 @@ export function createFixtures() {
     else if (path === `/zones/${zoneId}`)
       result = { id: zoneId, name: "example.com", account: { id: accountId } };
     else if (path.endsWith("/dns_records/batch")) {
-      result = body;
+      const deletions = (body.deletes ?? []) as { id: string }[];
+      const patches = (body.patches ?? []) as {
+        id: string;
+        proxied: boolean;
+      }[];
+      const posts = (body.posts ?? []) as DnsRecord[];
+      const deleted = deletions.map((item) => ({
+        ...records.find((record) => record.id === item.id)!,
+      }));
+      for (const item of deletions) {
+        const index = records.findIndex((record) => record.id === item.id);
+        if (index >= 0) records.splice(index, 1);
+      }
+      const patched = patches.map((item) => {
+        const record = records.find((candidate) => candidate.id === item.id)!;
+        Object.assign(record, { proxied: item.proxied });
+        return { ...record };
+      });
+      const posted = posts.map((item) => ({
+        ...item,
+        id: randomUUID().replaceAll("-", ""),
+      }));
+      records.push(...posted);
+      result = { deletes: deleted, patches: patched, posts: posted };
     } else if (path.endsWith("/dns_records") && method === "GET")
       result = records;
     else if (path.endsWith("/dns_records") && method === "POST") {
@@ -190,11 +215,21 @@ export function createFixtures() {
               ETag: '"test-etag"',
               ContentType: "text/plain",
             };
-          case "DeleteObjectsCommand":
-            input.Delete.Objects.forEach((item: { Key: string }) =>
+          case "DeleteObjectsCommand": {
+            const requested = input.Delete.Objects as { Key: string }[];
+            const deleted = requested.filter(
+              (item) => !deleteFailures.has(item.Key),
+            );
+            deleted.forEach((item) =>
               objects.delete(`${input.Bucket}/${item.Key}`),
             );
-            return { Deleted: input.Delete.Objects };
+            return {
+              Deleted: deleted,
+              Errors: requested
+                .filter((item) => deleteFailures.has(item.Key))
+                .map((item) => ({ Key: item.Key, Message: "Access denied" })),
+            };
+          }
           case "CreateMultipartUploadCommand": {
             const id = randomUUID();
             uploads.set(id, {
@@ -287,6 +322,7 @@ export function createFixtures() {
     r2Client,
     objects,
     records,
+    deleteFailures,
     calls,
     acceptSignedUpload,
   };
