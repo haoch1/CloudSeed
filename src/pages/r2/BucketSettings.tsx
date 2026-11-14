@@ -284,6 +284,7 @@ export function BucketSettings({
           <Text variant="heading" as="h2">
             删除存储桶
           </Text>
+          <p className="muted">请先清空桶内对象，删除后无法恢复。</p>
         </div>
         <Button
           variant="secondary-destructive"

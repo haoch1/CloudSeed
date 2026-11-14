@@ -1083,7 +1083,11 @@ function Objects({
       )}
       {deleting && (
         <Confirm
-          title={`删除 ${deleting.length} 个文件`}
+          title={
+            deleting.length === 1 ? "要删除此文件吗？" : "要删除这些文件吗？"
+          }
+          className="file-delete-dialog"
+          confirmText="删除"
           onClose={() => setDeleting(null)}
           onConfirm={async () => {
             const result = await request<{
@@ -1104,7 +1108,22 @@ function Objects({
             notify("文件已删除");
           }}
         >
-          确认删除所选文件
+          {deleting.length === 1 ? (
+            <p>
+              从 {bucket} 中删除 <strong>{deleting[0]}</strong> 是永久性的，无法撤销。
+            </p>
+          ) : (
+            <>
+              <p>
+                从 {bucket} 中删除以下 {deleting.length} 个文件是永久性的，无法撤销。
+              </p>
+              <ul className="file-delete-list">
+                {deleting.map((key) => (
+                  <li key={key}>{key}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </Confirm>
       )}
       {folder && (
