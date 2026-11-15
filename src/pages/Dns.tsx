@@ -491,14 +491,12 @@ export default function Dns() {
                     <col />
                     <col style={{ width: 110 }} />
                     <col style={{ width: 110 }} />
-                    <col style={{ width: 120 }} />
                   </colgroup>
                   <Table.Header>
                     <Table.Row>
                       <Table.Head>域名</Table.Head>
                       <Table.Head>状态</Table.Head>
                       <Table.Head>套餐</Table.Head>
-                      <Table.Head />
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
@@ -520,17 +518,6 @@ export default function Dns() {
                         </Table.Cell>
                         <Table.Cell>
                           {formatZonePlan(item.plan?.name)}
-                        </Table.Cell>
-                        <Table.Cell>
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              setParams({ zone: item.id });
-                              setSearch("");
-                            }}
-                          >
-                            管理记录
-                          </Button>
                         </Table.Cell>
                       </Table.Row>
                     ))}
