@@ -30,6 +30,7 @@ import {
   SignOutIcon,
 } from "@phosphor-icons/react";
 import { api, isDemoMode } from "./api";
+import { resetDemoSession } from "./demo-session";
 import { AccountContext } from "./context";
 import {
   Button,
@@ -254,7 +255,10 @@ function Shell({ username }: { username: string }) {
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => window.location.reload()}
+                    onClick={() => {
+                      resetDemoSession();
+                      window.location.reload();
+                    }}
                   >
                     重置演示
                   </Button>
@@ -285,6 +289,7 @@ function Shell({ username }: { username: string }) {
                 onClick={() =>
                   run(async () => {
                     if (demo) {
+                      resetDemoSession();
                       window.location.assign("/");
                       return;
                     }

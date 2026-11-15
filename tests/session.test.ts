@@ -128,10 +128,15 @@ test("登录有效期迁移、设置和重启后保持有效", async () => {
       undefined,
       legacyCookie,
     );
-    assert.equal(
-      (await defaultSettings.json()).durationSeconds,
-      30 * 24 * 60 * 60,
+    const defaultSession = await defaultSettings.json();
+    assert.equal(defaultSession.durationSeconds, 30 * 24 * 60 * 60);
+    const unchangedSettings = await request(
+      "/auth/session-duration",
+      "GET",
+      undefined,
+      legacyCookie,
     );
+    assert.deepEqual(await unchangedSettings.json(), defaultSession);
 
     const seconds = 90 * 24 * 60 * 60;
     const save = await request(
