@@ -62,6 +62,8 @@ test("演示直接进入、账号数据隔离、DNS 修改和浏览器文件操�
   const status = await demoRequest<{ authenticated: boolean }>("/auth/status");
   assert.equal(status.authenticated, true);
   const accounts = await demoRequest<Account[]>("/accounts");
+  assert.equal(accounts[0].s3CredentialType, "token");
+  assert.equal(accounts[1].s3CredentialType, "manual");
   const zones = await demoRequest<Zone[]>(
     `/accounts/${accounts[0].id}/dns/zones`,
   );

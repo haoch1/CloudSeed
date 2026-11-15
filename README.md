@@ -183,7 +183,7 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --build
 
 面板文件传输使用 R2 的 S3 兼容接口。该接口连接 `*.r2.cloudflarestorage.com`。
 
-添加账号时，面板会尝试验证当前 Token，并按 Cloudflare 官方规则推导 S3 凭据。
+添加账号时，面板会尝试验证当前 Token，并按 Cloudflare 官方规则推导 S3 凭据。账号列表中的“Token 推导”表示凭据与当前 Token 对应，不代表已验证 S3 的对象读写权限。
 
 - Access Key ID 使用 Token 的 `id`。
 - Secret Access Key 使用 Token 值的 SHA-256 哈希。

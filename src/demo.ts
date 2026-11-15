@@ -44,6 +44,7 @@ const accounts: Account[] = [
     name: "个人账号",
     accountId: "a".repeat(32),
     hasS3: true,
+    s3CredentialType: "token",
     createdAt: now,
   },
   {
@@ -51,6 +52,7 @@ const accounts: Account[] = [
     name: "项目账号",
     accountId: "b".repeat(32),
     hasS3: true,
+    s3CredentialType: "manual",
     createdAt: now,
   },
 ];
@@ -336,6 +338,8 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
         name: body.name,
         accountId: body.accountId,
         hasS3: true,
+        s3CredentialType:
+          body.accessKeyId && body.secretAccessKey ? "manual" : "token",
         createdAt: new Date().toISOString(),
       };
       accounts.push(account);
@@ -352,6 +356,9 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
     if (method === "PATCH") {
       account.name = body.name;
       account.accountId = body.accountId;
+      if (body.accessKeyId && body.secretAccessKey)
+        account.s3CredentialType = "manual";
+      else if (body.token) account.s3CredentialType = "token";
       log("更新账号", account.id, account.accountId);
       return account;
     }

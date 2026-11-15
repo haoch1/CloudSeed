@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
-import { decrypt, encrypt } from "./security.js";
+import { decrypt, encrypt, hashToken } from "./security.js";
 import type { Account, AuditEntry } from "../shared/types.js";
 
 export interface Credentials {
@@ -134,11 +134,19 @@ export class Store {
 
   private publicAccount(row: AccountRow): Account {
     const credentials = decrypt<Credentials>(row.credentials, this.key);
+    const hasS3 = Boolean(
+      credentials.accessKeyId && credentials.secretAccessKey,
+    );
     return {
       id: row.id,
       name: row.name,
       accountId: row.account_id,
-      hasS3: Boolean(credentials.accessKeyId && credentials.secretAccessKey),
+      hasS3,
+      s3CredentialType: !hasS3
+        ? "none"
+        : credentials.secretAccessKey === hashToken(credentials.token)
+          ? "token"
+          : "manual",
       createdAt: row.created_at,
     };
   }

@@ -153,7 +153,7 @@ export default function Accounts({ navigation }: { navigation: ReactNode }) {
               <colgroup>
                 <col />
                 <col style={{ width: 300 }} />
-                <col style={{ width: 120 }} />
+                <col style={{ width: 150 }} />
                 <col style={{ width: 200 }} />
                 <col style={{ width: 280 }} />
               </colgroup>
@@ -175,9 +175,18 @@ export default function Accounts({ navigation }: { navigation: ReactNode }) {
                     </Table.Cell>
                     <Table.Cell>
                       {account.hasS3 ? (
-                        <span className="inline-good">
+                        <span
+                          className="inline-good"
+                          title={
+                            account.s3CredentialType === "token"
+                              ? "根据 API Token 推导，是否可用取决于 Token 的 R2 权限"
+                              : "已保存 S3 凭据，是否可用取决于其 R2 权限"
+                          }
+                        >
                           <CheckCircleIcon />
-                          已配置
+                          {account.s3CredentialType === "token"
+                            ? "Token 推导"
+                            : "已配置"}
                         </span>
                       ) : (
                         "待配置"

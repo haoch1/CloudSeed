@@ -3,6 +3,7 @@ export interface Account {
   name: string;
   accountId: string;
   hasS3: boolean;
+  s3CredentialType: "token" | "manual" | "none";
   createdAt: string;
 }
 export interface Zone {

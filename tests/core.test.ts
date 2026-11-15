@@ -8,6 +8,7 @@ import {
   encrypt,
   decrypt,
   hashPassword,
+  hashToken,
   verifyPassword,
 } from "../server/security.js";
 import { Store } from "../server/store.js";
@@ -63,6 +64,52 @@ test("DNS 分页完整读取，错误信息保留上游错误码", async () => {
     }).success,
     false,
   );
+});
+
+test("S3 状态区分 Token 推导、独立凭据和未配置", () => {
+  const root = resolve("../../Temp/cloudseed/tests");
+  mkdirSync(root, { recursive: true });
+  const directory = mkdtempSync(join(root, "s3-status-"));
+  const store = new Store(directory);
+  try {
+    const token = "test-api-token";
+    const tokenAccount = store.saveAccount({
+      name: "自动推导",
+      accountId: "a".repeat(32),
+      credentials: {
+        token,
+        accessKeyId: "token-id",
+        secretAccessKey: hashToken(token),
+      },
+    });
+    const manualAccount = store.saveAccount({
+      name: "独立凭据",
+      accountId: "b".repeat(32),
+      credentials: {
+        token,
+        accessKeyId: "other-id",
+        secretAccessKey: "other-secret",
+      },
+    });
+    const noS3Account = store.saveAccount({
+      name: "未配置",
+      accountId: "c".repeat(32),
+      credentials: { token },
+    });
+    assert.equal(tokenAccount.s3CredentialType, "token");
+    assert.equal(manualAccount.s3CredentialType, "manual");
+    assert.equal(noS3Account.s3CredentialType, "none");
+    assert.equal(noS3Account.hasS3, false);
+    assert.equal(
+      store.getAccount(tokenAccount.id)?.credentials.secretAccessKey,
+      hashToken(token),
+    );
+    assert.ok(!JSON.stringify(store.listAccounts()).includes(token));
+    assert.ok(!JSON.stringify(store.listAccounts()).includes("other-secret"));
+  } finally {
+    store.db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("首次启动创建管理员，用户名登录并保留已有凭据", async () => {
@@ -224,8 +271,13 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
       token: "secret-cloudflare-token",
     });
     assert.equal(add.status, 201);
-    const account = (await add.json()) as { id: string; hasS3: boolean };
+    const account = (await add.json()) as {
+      id: string;
+      hasS3: boolean;
+      s3CredentialType: string;
+    };
     assert.equal(account.hasS3, true);
+    assert.equal(account.s3CredentialType, "token");
     assert.equal(
       (
         await request("/accounts", "POST", {
