@@ -574,10 +574,11 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
     assert.equal(uploadFailure.accountName, "测试账号");
     assert.equal(uploadFailure.resource, "assets/new.txt");
     assert.equal(uploadFailure.status, "failed");
-    fixture.objects.set("assets/new.txt", {
-      size: 3,
-      metadata: { "cloudseed-upload": session.id },
-    });
+    fixture.acceptSignedUpload(
+      new URL(session.url),
+      session.headers,
+      Buffer.from("old"),
+    );
     assert.equal(
       (
         await request(
@@ -594,11 +595,18 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
       contentType: "text/plain",
       overwrite: true,
     });
-    const overwriteSession = (await overwrite.json()) as { id: string };
-    fixture.objects.set("assets/new.txt", {
-      size: 3,
-      metadata: { "cloudseed-upload": overwriteSession.id },
-    });
+    assert.equal(overwrite.status, 200);
+    const overwriteSession = (await overwrite.json()) as {
+      id: string;
+      url: string;
+      headers: Record<string, string>;
+    };
+    assert.equal(overwriteSession.headers["If-Match"], '"test-etag"');
+    fixture.acceptSignedUpload(
+      new URL(overwriteSession.url),
+      overwriteSession.headers,
+      Buffer.from("new"),
+    );
     assert.equal(
       (
         await request(
@@ -609,6 +617,62 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
       ).status,
       200,
     );
+    assert.equal(store.listAudit(1).items[0].action, "覆盖 R2 对象");
+    assert.equal(
+      fixture.objects.get("assets/new.txt")?.body?.toString(),
+      "new",
+    );
+
+    fixture.objects.set("assets/large.bin", {
+      size: 3,
+      metadata: {},
+      body: Buffer.from("old"),
+    });
+    const largeSize = 32 * 1024 ** 2 + 1;
+    const multipart = await request(`${base}/uploads?jurisdiction=eu`, "POST", {
+      key: "large.bin",
+      size: largeSize,
+      contentType: "application/octet-stream",
+      overwrite: true,
+    });
+    assert.equal(multipart.status, 200);
+    const multipartSession = (await multipart.json()) as {
+      id: string;
+      multipart: boolean;
+      headers: Record<string, string>;
+    };
+    assert.equal(multipartSession.multipart, true);
+    assert.equal(multipartSession.headers["If-Match"], '"test-etag"');
+    const partResponse = await request(
+      `${base}/uploads/${multipartSession.id}/part?jurisdiction=eu`,
+      "POST",
+      { partNumber: 1 },
+    );
+    assert.equal(partResponse.status, 200);
+    const part = (await partResponse.json()) as { url: string };
+    fixture.acceptSignedUpload(
+      new URL(part.url),
+      {},
+      Buffer.alloc(largeSize, 97),
+    );
+    assert.equal(
+      fixture.objects.get("assets/large.bin")?.body?.toString(),
+      "old",
+    );
+    const completed = await request(
+      `${base}/uploads/${multipartSession.id}/complete?jurisdiction=eu`,
+      "POST",
+      {
+        parts: [{ PartNumber: 1, ETag: '"part-etag"' }],
+      },
+    );
+    assert.equal(completed.status, 200);
+    assert.equal(fixture.objects.get("assets/large.bin")?.size, largeSize);
+    assert.equal(fixture.objects.get("assets/large.bin")?.body?.[0], 97);
+    const completeCall = fixture.s3Calls.findLast(
+      (call) => call.name === "CompleteMultipartUploadCommand",
+    );
+    assert.equal(completeCall?.input.IfMatch, '"test-etag"');
     assert.equal(store.listAudit(1).items[0].action, "覆盖 R2 对象");
     const folder = await request(`${base}/uploads?jurisdiction=eu`, "POST", {
       key: "folder/",

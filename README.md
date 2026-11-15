@@ -262,7 +262,7 @@ docker compose -f compose.yaml -f compose.build.yaml up -d --build
 }
 ```
 
-保存后回到 **对象** 页面，通过上传按钮选择文件，或将文件拖入文件列表区域上传。同名对象会提示已存在。分片上传依赖 `ETag` 响应头，CORS 中需要保留该字段 [官方 CORS 说明](https://developers.cloudflare.com/r2/buckets/cors/)
+保存后回到 **对象** 页面，通过上传按钮选择文件，或将文件拖入文件列表区域上传。同一路径下的同名文件会直接覆盖原文件。分片上传依赖 `ETag` 响应头，CORS 中需要保留该字段 [官方 CORS 说明](https://developers.cloudflare.com/r2/buckets/cors/)
 
 取消或失败后，面板会尝试中止未完成的分片。失败任务的重试会重新上传该文件。离开对象页面会取消该页面的活动上传，浏览器关闭后重新选择文件上传。可以在生命周期规则中设置未完成分片的过期清理。
 

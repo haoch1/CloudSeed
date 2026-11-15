@@ -42,7 +42,7 @@ function put(
         reject(
           new Error(
             xhr.status === 412
-              ? "文件已存在或上传期间被修改"
+              ? "文件在上传期间被创建或修改，请重试"
               : `R2 上传失败 (${xhr.status})，请检查桶 CORS 和访问权限`,
           ),
         );

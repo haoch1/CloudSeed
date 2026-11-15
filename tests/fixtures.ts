@@ -68,6 +68,7 @@ export function createFixtures() {
     ["assets/images/cover.webp", { size: 143360, metadata: {} }],
   ]);
   const deleteFailures = new Set<string>();
+  const s3Calls: { name: string; input: Record<string, any> }[] = [];
   const calls: {
     path: string;
     method: string;
@@ -178,6 +179,7 @@ export function createFixtures() {
         input: Record<string, any>;
       }) => {
         const input = command.input;
+        s3Calls.push({ name: command.constructor.name, input });
         const object = objects.get(`${input.Bucket}/${input.Key}`);
         switch (command.constructor.name) {
           case "ListObjectsV2Command": {
@@ -324,6 +326,7 @@ export function createFixtures() {
     records,
     deleteFailures,
     calls,
+    s3Calls,
     acceptSignedUpload,
   };
 }

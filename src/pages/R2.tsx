@@ -591,7 +591,7 @@ function Objects({
           base,
           task.file,
           task.key,
-          false,
+          true,
           batchController.signal,
           (progress) => updateTask(task.id, { progress }),
           request,

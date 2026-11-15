@@ -151,6 +151,12 @@ test("演示直接进入、账号数据隔离、DNS 修改和浏览器文件操�
     body: { file: new Blob(["new"]), key: "demo.txt", overwrite: true },
   });
   assert.equal((await latestAudit()).action, "覆盖 R2 对象");
+  const replacedLink = await demoRequest<{ url: string }>(
+    `${bucketBase}/link`,
+    { method: "POST", body: { key: "demo.txt" } },
+  );
+  assert.equal(await (await fetch(replacedLink.url)).text(), "new");
+  URL.revokeObjectURL(replacedLink.url);
   await demoRequest(`${bucketBase}/demo-upload`, {
     method: "POST",
     body: { file: new Blob([]), key: "folder/", overwrite: false },
