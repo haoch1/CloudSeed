@@ -13,7 +13,7 @@ import {
   FunnelIcon,
   BookOpenIcon,
 } from "@phosphor-icons/react";
-import { api, downloadJson } from "../api";
+import { api, downloadJson, formatZonePlan } from "../api";
 import { useAccount } from "../context";
 import {
   Button,
@@ -518,7 +518,9 @@ export default function Dns() {
                         <Table.Cell>
                           <Status value={item.status} />
                         </Table.Cell>
-                        <Table.Cell>{item.plan?.name || "—"}</Table.Cell>
+                        <Table.Cell>
+                          {formatZonePlan(item.plan?.name)}
+                        </Table.Cell>
                         <Table.Cell>
                           <Button
                             size="sm"

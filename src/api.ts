@@ -66,6 +66,22 @@ export function formatDate(value?: string): string {
     : "—";
 }
 
+const zonePlanLabels = new Map([
+  ["free", "Free"],
+  ["free website", "Free"],
+  ["pro", "Pro"],
+  ["pro website", "Pro"],
+  ["business", "Business"],
+  ["business website", "Business"],
+  ["enterprise", "Enterprise"],
+  ["enterprise website", "Enterprise"],
+]);
+
+export function formatZonePlan(name?: string): string {
+  const value = name?.trim();
+  return value ? (zonePlanLabels.get(value.toLowerCase()) ?? value) : "—";
+}
+
 export function r2ObjectUrl(domain: string, key: string): string {
   return `https://${domain}/${key.split("/").map(encodeURIComponent).join("/")}`;
 }

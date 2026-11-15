@@ -65,7 +65,7 @@ const zones = new Map<string, Zone[]>([
         id: primaryZone,
         name: "cloudseed.example",
         status: "active",
-        plan: { name: "Free" },
+        plan: { name: "Free Website" },
         name_servers: ["amy.ns.cloudflare.com", "bob.ns.cloudflare.com"],
       },
       {
@@ -91,7 +91,7 @@ const zones = new Map<string, Zone[]>([
         id: "4".repeat(32),
         name: "studio.example",
         status: "active",
-        plan: { name: "Pro" },
+        plan: { name: "Pro Website" },
         name_servers: ["amy.ns.cloudflare.com", "bob.ns.cloudflare.com"],
       },
     ],
