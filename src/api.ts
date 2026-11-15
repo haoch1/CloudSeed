@@ -33,7 +33,10 @@ export async function api<T>(
     .json()
     .catch(() => ({ error: "服务响应格式异常" }));
   if (!response.ok) {
-    if (response.status === 401 && !path.startsWith("/auth/"))
+    if (
+      response.status === 401 &&
+      (!path.startsWith("/auth/") || path === "/auth/session-duration")
+    )
       window.dispatchEvent(new Event("session-expired"));
     throw new RequestError(
       response.status,

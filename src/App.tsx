@@ -339,8 +339,11 @@ export function App() {
   });
   useEffect(() => {
     const expire = () => {
-      client.clear();
-      void client.invalidateQueries({ queryKey: ["auth"] });
+      void client.cancelQueries();
+      client.setQueryData<AuthStatus>(["auth"], { authenticated: false });
+      client.removeQueries({
+        predicate: (query) => query.queryKey[0] !== "auth",
+      });
     };
     window.addEventListener("session-expired", expire);
     return () => window.removeEventListener("session-expired", expire);

@@ -68,11 +68,17 @@ export class Store {
       PRAGMA foreign_keys = ON;
       PRAGMA busy_timeout = 5000;
       CREATE TABLE IF NOT EXISTS admin (id INTEGER PRIMARY KEY CHECK(id = 1), email TEXT NOT NULL, password TEXT NOT NULL);
-      CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, expires INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, expires INTEGER NOT NULL, duration_seconds INTEGER);
+      CREATE TABLE IF NOT EXISTS panel_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL, account_id TEXT NOT NULL UNIQUE, credentials TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, account_name TEXT NOT NULL, resource TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, bucket TEXT NOT NULL, jurisdiction TEXT NOT NULL, object_key TEXT NOT NULL, size INTEGER NOT NULL, upload_id TEXT, expected_etag TEXT, completed INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
     `);
+    const sessionColumns = this.db
+      .prepare("PRAGMA table_info(sessions)")
+      .all() as unknown as { name: string }[];
+    if (!sessionColumns.some((column) => column.name === "duration_seconds"))
+      this.db.exec("ALTER TABLE sessions ADD COLUMN duration_seconds INTEGER");
   }
 
   listAccounts(): Account[] {

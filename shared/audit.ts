@@ -194,6 +194,7 @@ const auditRequestRules: [string, RegExp, string][] = [
   ["DELETE", /^\/api\/accounts\/[^/]+$/, "移除面板账号"],
   ["POST", /^\/api\/accounts\/[^/]+\/verify$/, "验证账号连接"],
   ["POST", /^\/api\/auth\/password$/, "修改管理员密码"],
+  ["PUT", /^\/api\/auth\/session-duration$/, "更新登录有效期"],
   ["POST", /^\/api\/auth\/setup$/, "初始化管理员"],
   ["POST", /^\/api\/auth\/login$/, "登录"],
   ["POST", /^\/api\/auth\/logout$/, "退出登录"],

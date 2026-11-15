@@ -14,6 +14,11 @@ import {
   dnsRecordResource,
   r2UploadAction,
 } from "../shared/audit";
+import {
+  defaultSessionDurationSeconds,
+  isSessionDurationSeconds,
+  sessionDurationOptions,
+} from "../shared/session";
 
 interface DemoObject {
   item: ObjectItem;
@@ -36,6 +41,10 @@ interface DemoOptions {
 }
 
 const now = new Date().toISOString();
+let demoSessionDuration = defaultSessionDurationSeconds;
+let demoSessionExpiresAt = new Date(
+  Date.now() + demoSessionDuration * 1000,
+).toISOString();
 const primaryId = "demo-personal";
 const projectId = "demo-project";
 const primaryZone = "1".repeat(32);
@@ -323,6 +332,28 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
     };
   if (path === "/auth/password")
     throw new Error("演示账号使用免登录访问，可从正式控制台管理管理员密码");
+  if (path === "/auth/session-duration") {
+    if (method === "PUT") {
+      if (!isSessionDurationSeconds(body.durationSeconds))
+        throw new Error("请选择有效的登录有效期");
+      demoSessionDuration = body.durationSeconds;
+      demoSessionExpiresAt = new Date(
+        Date.now() + demoSessionDuration * 1000,
+      ).toISOString();
+      log(
+        "更新登录有效期",
+        "",
+        "管理员",
+        sessionDurationOptions.find(
+          (option) => option.seconds === demoSessionDuration,
+        )?.label ?? "",
+      );
+    }
+    return {
+      durationSeconds: demoSessionDuration,
+      expiresAt: demoSessionExpiresAt,
+    };
+  }
   if (segments[0] === "audit") {
     const requestedPage = Number(url.searchParams.get("page"));
     const page = Number.isFinite(requestedPage)
