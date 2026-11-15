@@ -7,7 +7,6 @@ import { api, formatDate } from "../api";
 import {
   Button,
   ErrorState,
-  Field,
   Input,
   Loading,
   PageHeader,
@@ -46,10 +45,7 @@ function SessionDurationSettings() {
     <section className="panel settings-section">
       <h2>登录有效期</h2>
       <div className="settings-form form-stack">
-        <Field
-          label="有效期"
-          hint={`当前登录有效至 ${formatDate(query.data.expiresAt)}`}
-        >
+        <div className="field">
           <Select
             aria-label="登录有效期"
             value={duration}
@@ -68,7 +64,10 @@ function SessionDurationSettings() {
               </Select.Option>
             ))}
           </Select>
-        </Field>
+          <small className="muted">
+            当前登录有效至 {formatDate(query.data.expiresAt)}
+          </small>
+        </div>
         <div>
           <Button
             variant="primary"
