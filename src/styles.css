@@ -335,6 +335,13 @@ a:focus-visible {
 }
 .table-scroll .audit-table {
   min-width: 800px;
+  font-size: var(--text-sm);
+}
+.table-scroll .audit-table th {
+  font-size: var(--text-sm);
+}
+.audit-table .cell-note {
+  font-size: 12px;
 }
 .object-table th:last-child {
   width: 72px;
