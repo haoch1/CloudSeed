@@ -4,7 +4,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { ZodError } from "zod";
+import { z, ZodError } from "zod";
 import { Store } from "./store.js";
 import { ApiError } from "./cloudflare.js";
 import { authRoutes, requireAuth } from "./auth.js";
@@ -73,13 +73,15 @@ export function createApp(store: Store, r2Client = s3Client) {
   app.use("/api/accounts", accountRoutes(store));
   app.use("/api/accounts/:account/dns", dnsRoutes(store));
   app.use("/api/accounts/:account/r2", r2Routes(store, r2Client));
-  app.get("/api/audit", (request, response) =>
-    response.json(
-      store.listAudit(
-        Math.max(1, Math.min(100000, Number(request.query.page) || 1)),
-      ),
-    ),
-  );
+  app.get("/api/audit", (request, response) => {
+    const search =
+      z.string().trim().max(200).optional().parse(request.query.search) ?? "";
+    const requestedPage = Number(request.query.page);
+    const page = Number.isFinite(requestedPage)
+      ? Math.max(1, Math.min(100000, Math.floor(requestedPage)))
+      : 1;
+    response.json(store.listAudit(page, search));
+  });
   app.use("/api", (_request, _response, next) =>
     next(new ApiError(404, "接口不存在")),
   );

@@ -8,6 +8,7 @@ import type {
   Zone,
 } from "../shared/types";
 import {
+  auditMatches,
   describeDnsBatch,
   describeDnsUpdate,
   dnsRecordResource,
@@ -323,10 +324,18 @@ async function dispatch(path: string, options: DemoOptions): Promise<unknown> {
   if (path === "/auth/password")
     throw new Error("演示账号使用免登录访问，可从正式控制台管理管理员密码");
   if (segments[0] === "audit") {
-    const page = Math.max(1, Number(url.searchParams.get("page")) || 1);
+    const requestedPage = Number(url.searchParams.get("page"));
+    const page = Number.isFinite(requestedPage)
+      ? Math.max(1, Math.min(100000, Math.floor(requestedPage)))
+      : 1;
+    const search = (url.searchParams.get("search") ?? "").trim();
+    if (search.length > 200) throw new Error("搜索内容最多 200 个字符");
+    const filtered = search
+      ? audit.filter((entry) => auditMatches(entry, search))
+      : audit;
     return {
-      items: audit.slice((page - 1) * 50, page * 50),
-      total: audit.length,
+      items: filtered.slice((page - 1) * 50, page * 50),
+      total: filtered.length,
     };
   }
   if (segments[0] !== "accounts") throw new Error("演示接口不存在");

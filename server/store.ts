@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { decrypt, encrypt, hashToken } from "./security.js";
 import type { Account, AuditEntry } from "../shared/types.js";
+import { auditMatches } from "../shared/audit.js";
 
 export interface Credentials {
   token: string;
@@ -45,6 +46,23 @@ export class Store {
       });
     this.setupToken = readFileSync(setupPath, "utf8").trim();
     this.db = new DatabaseSync(databasePath);
+    this.db.function(
+      "audit_search_match",
+      { deterministic: true },
+      (search, action, accountName, resource, status, detail) =>
+        auditMatches(
+          {
+            action: String(action),
+            accountName: String(accountName),
+            resource: String(resource),
+            status: String(status),
+            detail: String(detail),
+          },
+          String(search),
+        )
+          ? 1
+          : 0,
+    );
     this.db.exec(`
       PRAGMA journal_mode = WAL;
       PRAGMA foreign_keys = ON;
@@ -120,15 +138,20 @@ export class Store {
       );
   }
 
-  listAudit(page: number): { items: AuditEntry[]; total: number } {
+  listAudit(page: number, search = ""): { items: AuditEntry[]; total: number } {
+    const term = search.trim();
+    const where = term
+      ? " WHERE audit_search_match(?, action, account_name, resource, status, detail) = 1"
+      : "";
+    const searchParams = term ? [term] : [];
     const items = this.db
       .prepare(
-        "SELECT id, action, account_name AS accountName, resource, status, detail, created_at AS createdAt FROM audit ORDER BY id DESC LIMIT 50 OFFSET ?",
+        `SELECT id, action, account_name AS accountName, resource, status, detail, created_at AS createdAt FROM audit${where} ORDER BY id DESC LIMIT 50 OFFSET ?`,
       )
-      .all((page - 1) * 50) as unknown as AuditEntry[];
+      .all(...searchParams, (page - 1) * 50) as unknown as AuditEntry[];
     const count = this.db
-      .prepare("SELECT COUNT(*) AS total FROM audit")
-      .get() as { total: number };
+      .prepare(`SELECT COUNT(*) AS total FROM audit${where}`)
+      .get(...searchParams) as { total: number };
     return { items, total: count.total };
   }
 

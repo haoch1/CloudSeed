@@ -81,6 +81,23 @@ test("演示直接进入、账号数据隔离、DNS 修改和浏览器文件操�
   const latestAudit = async () =>
     (await demoRequest<{ items: AuditEntry[] }>("/audit?page=1")).items[0];
   assert.equal((await latestAudit()).action, "关闭 DNS 代理");
+  const filteredAudit = await demoRequest<{
+    items: AuditEntry[];
+    total: number;
+  }>(`/audit?page=1&search=${encodeURIComponent("关闭 DNS 代理")}`);
+  assert.equal(filteredAudit.total, 1);
+  assert.equal(
+    filteredAudit.items[0].resource,
+    `${original[0].name} (${original[0].type})`,
+  );
+  assert.equal(
+    (
+      await demoRequest<{ total: number }>(
+        `/audit?search=${encodeURIComponent("没有的记录")}`,
+      )
+    ).total,
+    0,
+  );
   await demoRequest(`${base}/batch`, {
     method: "POST",
     body: { deletes: [{ id: original[3].id }] },

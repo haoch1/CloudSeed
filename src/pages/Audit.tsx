@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { api, formatDate } from "../api";
 import {
   Button,
   RefreshButton,
+  Input,
   PageHeader,
   Loading,
   ErrorState,
@@ -16,32 +18,50 @@ import { displayAuditAction } from "../../shared/audit";
 
 export default function Audit() {
   const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const searchTerm = search.trim();
   const query = useQuery({
-    queryKey: ["audit", page],
-    queryFn: ({ signal }) =>
-      api<{ items: AuditEntry[]; total: number }>(`/audit?page=${page}`, {
+    queryKey: ["audit", page, searchTerm],
+    queryFn: ({ signal }) => {
+      const params = new URLSearchParams({ page: String(page) });
+      if (searchTerm) params.set("search", searchTerm);
+      return api<{ items: AuditEntry[]; total: number }>(`/audit?${params}`, {
         signal,
-      }),
+      });
+    },
   });
   return (
     <>
-      <PageHeader
-        title="操作记录"
-        actions={
-          <RefreshButton
-            aria-label="刷新操作记录"
-            loading={query.isFetching}
-            onClick={() => void query.refetch()}
+      <PageHeader title="操作记录" />
+      <div className="resource-search">
+        <div className="search-input">
+          <MagnifyingGlassIcon />
+          <Input
+            aria-label="搜索操作记录"
+            placeholder="搜索操作记录"
+            value={search}
+            maxLength={200}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
           />
-        }
-      />
+        </div>
+        <RefreshButton
+          aria-label="刷新操作记录"
+          loading={query.isFetching}
+          onClick={() => void query.refetch()}
+        />
+      </div>
       <section className="panel">
         {query.isPending ? (
           <Loading />
         ) : query.error ? (
           <ErrorState error={query.error} retry={() => void query.refetch()} />
         ) : !query.data?.items.length ? (
-          <EmptyState title="暂无操作记录" />
+          <EmptyState
+            title={searchTerm ? "没有匹配的操作记录" : "暂无操作记录"}
+          />
         ) : (
           <>
             <div className="table-scroll">

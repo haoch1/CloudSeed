@@ -1,3 +1,5 @@
+import type { AuditEntry } from "./types.js";
+
 type RecordSummary = { id?: string; name?: string; type?: string };
 
 export type DnsBatchChanges = {
@@ -114,93 +116,94 @@ export function describeDnsBatch(
   return { action, resource: zoneName, detail };
 }
 
+const auditRequestRules: [string, RegExp, string][] = [
+  [
+    "POST",
+    /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/batch$/,
+    "DNS 批量操作",
+  ],
+  [
+    "POST",
+    /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/records$/,
+    "新增 DNS 记录",
+  ],
+  [
+    "PATCH",
+    /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/records\/[^/]+$/,
+    "修改 DNS 记录",
+  ],
+  [
+    "DELETE",
+    /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/records\/[^/]+$/,
+    "删除 DNS 记录",
+  ],
+  ["POST", /^\/api\/accounts\/[^/]+\/r2\/buckets$/, "创建 R2 桶"],
+  ["DELETE", /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+$/, "删除 R2 桶"],
+  [
+    "POST",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/link$/,
+    "生成 R2 访问链接",
+  ],
+  [
+    "POST",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/delete-objects$/,
+    "删除 R2 对象",
+  ],
+  [
+    "POST",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/copy$/,
+    "复制或移动 R2 对象",
+  ],
+  [
+    "POST",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/uploads(?:\/[^/]+\/(?:part|complete))?$/,
+    "上传 R2 对象",
+  ],
+  [
+    "DELETE",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/uploads\/[^/]+$/,
+    "取消 R2 上传",
+  ],
+  [
+    "PUT",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/cors$/,
+    "更新 R2 CORS 规则",
+  ],
+  [
+    "PUT",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/lifecycle$/,
+    "更新 R2 生命周期规则",
+  ],
+  [
+    "PUT",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/domains\/managed$/,
+    "更新 r2.dev 访问",
+  ],
+  [
+    "POST",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/domains\/custom$/,
+    "绑定 R2 自定义域名",
+  ],
+  [
+    "DELETE",
+    /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/domains\/custom\/[^/]+$/,
+    "解绑 R2 自定义域名",
+  ],
+  ["POST", /^\/api\/accounts$/, "添加账号"],
+  ["PATCH", /^\/api\/accounts\/[^/]+$/, "更新账号"],
+  ["DELETE", /^\/api\/accounts\/[^/]+$/, "移除面板账号"],
+  ["POST", /^\/api\/accounts\/[^/]+\/verify$/, "验证账号连接"],
+  ["POST", /^\/api\/auth\/password$/, "修改管理员密码"],
+  ["POST", /^\/api\/auth\/setup$/, "初始化管理员"],
+  ["POST", /^\/api\/auth\/login$/, "登录"],
+  ["POST", /^\/api\/auth\/logout$/, "退出登录"],
+];
+
 export function auditActionForRequest(
   method: string,
   path: string,
 ): string | undefined {
-  const rules: [string, RegExp, string][] = [
-    [
-      "POST",
-      /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/batch$/,
-      "DNS 批量操作",
-    ],
-    [
-      "POST",
-      /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/records$/,
-      "新增 DNS 记录",
-    ],
-    [
-      "PATCH",
-      /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/records\/[^/]+$/,
-      "修改 DNS 记录",
-    ],
-    [
-      "DELETE",
-      /^\/api\/accounts\/[^/]+\/dns\/zones\/[^/]+\/records\/[^/]+$/,
-      "删除 DNS 记录",
-    ],
-    ["POST", /^\/api\/accounts\/[^/]+\/r2\/buckets$/, "创建 R2 桶"],
-    ["DELETE", /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+$/, "删除 R2 桶"],
-    [
-      "POST",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/link$/,
-      "生成 R2 访问链接",
-    ],
-    [
-      "POST",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/delete-objects$/,
-      "删除 R2 对象",
-    ],
-    [
-      "POST",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/copy$/,
-      "复制或移动 R2 对象",
-    ],
-    [
-      "POST",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/uploads(?:\/[^/]+\/(?:part|complete))?$/,
-      "上传 R2 对象",
-    ],
-    [
-      "DELETE",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/uploads\/[^/]+$/,
-      "取消 R2 上传",
-    ],
-    [
-      "PUT",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/cors$/,
-      "更新 R2 CORS 规则",
-    ],
-    [
-      "PUT",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/lifecycle$/,
-      "更新 R2 生命周期规则",
-    ],
-    [
-      "PUT",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/domains\/managed$/,
-      "更新 r2.dev 访问",
-    ],
-    [
-      "POST",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/domains\/custom$/,
-      "绑定 R2 自定义域名",
-    ],
-    [
-      "DELETE",
-      /^\/api\/accounts\/[^/]+\/r2\/buckets\/[^/]+\/domains\/custom\/[^/]+$/,
-      "解绑 R2 自定义域名",
-    ],
-    ["POST", /^\/api\/accounts$/, "添加账号"],
-    ["PATCH", /^\/api\/accounts\/[^/]+$/, "更新账号"],
-    ["DELETE", /^\/api\/accounts\/[^/]+$/, "移除面板账号"],
-    ["POST", /^\/api\/accounts\/[^/]+\/verify$/, "验证账号连接"],
-    ["POST", /^\/api\/auth\/password$/, "修改管理员密码"],
-    ["POST", /^\/api\/auth\/setup$/, "初始化管理员"],
-    ["POST", /^\/api\/auth\/login$/, "登录"],
-    ["POST", /^\/api\/auth\/logout$/, "退出登录"],
-  ];
-  return rules.find(
+  return auditRequestRules.find(
     ([verb, pattern]) => verb === method && pattern.test(path),
   )?.[2];
 }
@@ -214,6 +217,34 @@ export function displayAuditAction(
   return status === "failed"
     ? (auditActionForRequest(action, resource) ?? action)
     : action;
+}
+
+export function auditMatches(
+  entry: Pick<
+    AuditEntry,
+    "action" | "accountName" | "resource" | "status" | "detail"
+  >,
+  search: string,
+): boolean {
+  const term = search.trim().toLowerCase();
+  if (!term) return true;
+  const statusLabel =
+    (
+      { success: "成功", failed: "失败", partial: "部分完成" } as Record<
+        string,
+        string
+      >
+    )[entry.status] ?? entry.status;
+  return [
+    displayAuditAction(entry.action, entry.status, entry.resource),
+    entry.action,
+    entry.accountName,
+    entry.resource,
+    entry.detail,
+    entry.status,
+    statusLabel,
+    entry.action === "批量修改 DNS" ? "旧记录未保存具体操作类型" : "",
+  ].some((value) => value.toLowerCase().includes(term));
 }
 
 export function r2UploadAction(

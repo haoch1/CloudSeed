@@ -28,6 +28,49 @@ test("凭据加密、篡改检测和密码校验", () => {
   assert.equal(verifyPassword("wrong-password", hash), false);
 });
 
+test("操作记录搜索覆盖所有分页并匹配显示名称", () => {
+  const root = resolve("../../Temp/cloudseed/tests");
+  mkdirSync(root, { recursive: true });
+  const directory = mkdtempSync(join(root, "audit-search-"));
+  const store = new Store(directory);
+  try {
+    store.db.exec("BEGIN");
+    for (let index = 0; index < 60; index++)
+      store.audit("上传 R2 对象", "个人账号", `assets/Case-file-${index}.txt`);
+    store.audit(
+      "POST",
+      "个人账号",
+      "/api/accounts/id/r2/buckets/assets/uploads/job/complete",
+      "failed",
+      "无法连接 R2",
+    );
+    store.audit(
+      "批量修改 DNS",
+      "项目账号",
+      "example.com",
+      "success",
+      "1 条记录",
+    );
+    store.audit("删除 R2 对象", "项目账号", "assets/100%_file.txt");
+    store.db.exec("COMMIT");
+
+    assert.equal(store.listAudit(1, "case-FILE").total, 60);
+    assert.equal(store.listAudit(1, "case-FILE").items.length, 50);
+    assert.equal(store.listAudit(2, "case-FILE").items.length, 10);
+    assert.equal(store.listAudit(1, "上传 R2 对象").total, 61);
+    assert.equal(store.listAudit(1, "DNS 操作（旧记录）").total, 1);
+    assert.equal(store.listAudit(1, "失败").total, 1);
+    assert.equal(store.listAudit(1, "无法连接").total, 1);
+    assert.equal(store.listAudit(1, "项目账号").total, 2);
+    assert.equal(store.listAudit(1, "100%_").total, 1);
+    assert.equal(store.listAudit(1, "' OR 1=1 --").total, 0);
+    assert.equal(store.listAudit(1, "不存在的记录").total, 0);
+  } finally {
+    store.db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("DNS 分页完整读取，错误信息保留上游错误码", async () => {
   let page = 0;
   const client = new Cloudflare(
@@ -421,6 +464,24 @@ test("认证、账号脱敏、DNS 代理 PATCH、R2 区域与上传校验的完�
     assert.equal(dnsFailure.resource, `example.com / ${recordId}`);
     assert.equal(dnsFailure.status, "failed");
     globalThis.fetch = fixture.upstreamFetch;
+    const searchResponse = await request(
+      `/audit?search=${encodeURIComponent("删除 DNS 记录")}`,
+    );
+    assert.equal(searchResponse.status, 200);
+    const searchResult = (await searchResponse.json()) as {
+      items: { action: string; status: string }[];
+      total: number;
+    };
+    assert.ok(searchResult.total >= 2);
+    assert.ok(
+      searchResult.items.some(
+        (item) => item.action === "删除 DNS 记录" && item.status === "failed",
+      ),
+    );
+    assert.equal(
+      (await request(`/audit?search=${"x".repeat(201)}`)).status,
+      400,
+    );
     assert.equal(
       (
         await request(
