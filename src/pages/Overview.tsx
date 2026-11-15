@@ -88,12 +88,7 @@ export function Overview() {
               <EmptyState title="暂无域名" />
             ) : (
               <div className="table-scroll">
-                <Table layout="fixed">
-                  <Table.Header>
-                    <Table.Row>
-                      <Table.Head>域名</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
+                <Table layout="fixed" aria-label="域名">
                   <Table.Body>
                     {zones.data.slice(0, 5).map((zone) => (
                       <Table.Row key={zone.id}>
@@ -133,12 +128,7 @@ export function Overview() {
               <EmptyState title="暂无存储桶" />
             ) : (
               <div className="table-scroll">
-                <Table layout="fixed">
-                  <Table.Header>
-                    <Table.Row>
-                      <Table.Head>存储桶</Table.Head>
-                    </Table.Row>
-                  </Table.Header>
+                <Table layout="fixed" aria-label="R2 存储桶">
                   <Table.Body>
                     {buckets.data.slice(0, 5).map((bucket) => (
                       <Table.Row key={bucket.name}>

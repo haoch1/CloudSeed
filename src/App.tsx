@@ -271,9 +271,9 @@ function Shell({ username }: { username: string }) {
               <Button
                 variant="ghost"
                 shape="square"
-                aria-label="管理员设置"
+                aria-label="账号管理"
                 title={username}
-                onClick={() => navigate("/settings?tab=security")}
+                onClick={() => navigate("/settings?tab=accounts")}
               >
                 <UserIcon size={19} />
               </Button>
