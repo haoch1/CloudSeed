@@ -44,12 +44,7 @@ function SessionDurationSettings() {
   const duration = draft ?? query.data.durationSeconds;
   return (
     <section className="panel settings-section">
-      <div>
-        <h2>登录有效期</h2>
-        <p className="muted">
-          从登录开始计算；保存后当前登录会重新计时，其他已登录设备保持原有效期。
-        </p>
-      </div>
+      <h2>登录有效期</h2>
       <div className="settings-form form-stack">
         <Field
           label="有效期"
