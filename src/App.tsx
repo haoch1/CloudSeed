@@ -2,8 +2,10 @@ import { Select } from "@cloudflare/kumo/components/select";
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useState,
   type CSSProperties,
 } from "react";
@@ -34,6 +36,7 @@ import { resetDemoSession } from "./demo-session";
 import { AccountContext } from "./context";
 import {
   Button,
+  ErrorBoundary,
   Input,
   Loading,
   ErrorState,
@@ -180,19 +183,24 @@ function Shell({ username }: { username: string }) {
     document.documentElement.dataset.mode = dark ? "dark" : "light";
     localStorage.setItem("cloudseed-theme", dark ? "dark" : "light");
   }, [dark]);
-  function changeAccount(id: string) {
-    setSelected(id);
-    localStorage.setItem(accountStorageKey, id);
-    navigate(location.pathname);
-  }
+  const changeAccount = useCallback(
+    (id: string) => {
+      setSelected(id);
+      localStorage.setItem(accountStorageKey, id);
+      navigate(location.pathname);
+    },
+    [accountStorageKey, location.pathname, navigate],
+  );
+  const accountContextValue = useMemo(
+    () => ({
+      accounts: accounts.data ?? [],
+      account,
+      setAccount: changeAccount,
+    }),
+    [accounts.data, account, changeAccount],
+  );
   return (
-    <AccountContext.Provider
-      value={{
-        accounts: accounts.data ?? [],
-        account,
-        setAccount: changeAccount,
-      }}
-    >
+    <AccountContext.Provider value={accountContextValue}>
       <Sidebar.Provider
         defaultOpen
         defaultWidth={240}
@@ -312,23 +320,25 @@ function Shell({ username }: { username: string }) {
             ) : accounts.isPending ? (
               <Loading />
             ) : (
-              <Suspense fallback={<Loading />}>
-                <Routes>
-                  <Route path="/overview" element={<Overview />} />
-                  <Route
-                    path="/accounts"
-                    element={<Navigate to="/settings?tab=accounts" replace />}
-                  />
-                  <Route path="/dns" element={<Dns />} />
-                  <Route path="/r2" element={<R2 />} />
-                  <Route path="/audit" element={<Audit />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route
-                    path="*"
-                    element={<Navigate to="/overview" replace />}
-                  />
-                </Routes>
-              </Suspense>
+              <ErrorBoundary resetKey={location.pathname + location.search}>
+                <Suspense fallback={<Loading />}>
+                  <Routes>
+                    <Route path="/overview" element={<Overview />} />
+                    <Route
+                      path="/accounts"
+                      element={<Navigate to="/settings?tab=accounts" replace />}
+                    />
+                    <Route path="/dns" element={<Dns />} />
+                    <Route path="/r2" element={<R2 />} />
+                    <Route path="/audit" element={<Audit />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route
+                      path="*"
+                      element={<Navigate to="/overview" replace />}
+                    />
+                  </Routes>
+                </Suspense>
+              </ErrorBoundary>
             )}
           </main>
         </div>

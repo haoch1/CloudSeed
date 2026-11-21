@@ -1,11 +1,14 @@
 import {
+  Component,
   createContext,
+  useCallback,
   useContext,
   useState,
   useEffect,
   useRef,
   type ComponentProps,
   type CSSProperties,
+  type ErrorInfo,
   type ReactNode,
   type FormEvent,
 } from "react";
@@ -107,14 +110,44 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<
     { id: number; message: string; error: boolean }[]
   >([]);
-  function notify(message: string, error = false) {
-    const id = Date.now() + Math.random();
-    setMessages((current) => [...current, { id, message, error }]);
-    setTimeout(
-      () => setMessages((current) => current.filter((item) => item.id !== id)),
-      error ? 10000 : 4000,
-    );
-  }
+  const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
+  useEffect(
+    () => () => {
+      timers.current.forEach((timer) => clearTimeout(timer));
+      timers.current.clear();
+    },
+    [],
+  );
+  const dismiss = useCallback((id: number) => {
+    const timer = timers.current.get(id);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      timers.current.delete(id);
+    }
+    setMessages((current) => current.filter((item) => item.id !== id));
+  }, []);
+  const notify = useCallback(
+    (message: string, error = false) => {
+      const id = Date.now() + Math.random();
+      setMessages((current) => {
+        const next = [...current, { id, message, error }];
+        if (next.length > 5) {
+          for (const dropped of next.slice(0, next.length - 5)) {
+            const droppedTimer = timers.current.get(dropped.id);
+            if (droppedTimer !== undefined) {
+              clearTimeout(droppedTimer);
+              timers.current.delete(dropped.id);
+            }
+          }
+          return next.slice(-5);
+        }
+        return next;
+      });
+      const timer = setTimeout(() => dismiss(id), error ? 10000 : 4000);
+      timers.current.set(id, timer);
+    },
+    [dismiss],
+  );
   return (
     <ToastContext.Provider value={notify}>
       {children}
@@ -132,11 +165,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             <span>{item.message}</span>
             <button
               aria-label="关闭通知"
-              onClick={() =>
-                setMessages((current) =>
-                  current.filter((message) => message.id !== item.id),
-                )
-              }
+              onClick={() => dismiss(item.id)}
             >
               <XIcon />
             </button>
@@ -148,21 +177,73 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 }
 export const useToast = () => useContext(ToastContext);
 
+export function useDebouncedValue<T>(value: T, delayMs = 250): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+  return debounced;
+}
+
 export function useAction() {
   const notify = useToast();
   const [pending, setPending] = useState(false);
-  async function run(operation: () => Promise<void>, success?: string) {
-    setPending(true);
-    try {
-      await operation();
-      if (success) notify(success);
-    } catch (error) {
-      notify(error instanceof Error ? error.message : "操作失败，请重试", true);
-    } finally {
-      setPending(false);
+  const pendingRef = useRef(false);
+  const run = useCallback(
+    async (operation: () => Promise<void>, success?: string) => {
+      if (pendingRef.current) return;
+      pendingRef.current = true;
+      setPending(true);
+      try {
+        await operation();
+        if (success) notify(success);
+      } catch (error) {
+        notify(
+          error instanceof Error ? error.message : "操作失败，请重试",
+          true,
+        );
+      } finally {
+        pendingRef.current = false;
+        setPending(false);
+      }
+    },
+    [notify],
+  );
+  return { pending, run };
+}
+
+export class ErrorBoundary extends Component<
+  { children: ReactNode; resetKey?: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidUpdate(prevProps: { resetKey?: string }) {
+    if (this.state.error && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ error: null });
     }
   }
-  return { pending, run };
+
+  componentDidCatch(_error: Error, _info: ErrorInfo) {}
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="panel">
+          <ErrorState
+            error={new Error("页面加载出现异常，请重试或刷新页面")}
+            retry={() => this.setState({ error: null })}
+          />
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 export function Modal({

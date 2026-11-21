@@ -1,6 +1,6 @@
 import { Select } from "@cloudflare/kumo/components/select";
 import { Popover } from "@cloudflare/kumo/components/popover";
-import { Fragment, useRef, useState } from "react";
+import { Fragment, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -140,6 +140,7 @@ function RecordForm({
   const [type, setType] = useState(record?.type || "A");
   const [proxied, setProxied] = useState(record?.proxied ?? false);
   const [ttl, setTtl] = useState(record?.ttl ?? 1);
+  const proxyLabelId = useId();
   const canProxy = ["A", "AAAA", "CNAME"].includes(type);
   const isProxied = canProxy && proxied;
   const { pending, run } = useAction();
@@ -195,6 +196,14 @@ function RecordForm({
                 : rawName === zoneName || rawName.endsWith(`.${zoneName}`)
                   ? rawName
                   : `${rawName}.${zoneName}`;
+            let structuredData: Record<string, unknown> | undefined;
+            if (structuredTypes.includes(type)) {
+              try {
+                structuredData = JSON.parse(String(form.get("data")));
+              } catch {
+                throw new Error("结构化数据 JSON 格式不正确");
+              }
+            }
             const input = {
               type,
               name,
@@ -205,9 +214,7 @@ function RecordForm({
               ...(type === "MX"
                 ? { priority: Number(form.get("priority")) }
                 : {}),
-              ...(structuredTypes.includes(type)
-                ? { data: JSON.parse(String(form.get("data"))) }
-                : {}),
+              ...(structuredData !== undefined ? { data: structuredData } : {}),
             };
             await api(`${base}/records${record ? `/${record.id}` : ""}`, {
               method: record ? "PATCH" : "POST",
@@ -278,12 +285,12 @@ function RecordForm({
           )}
           {canProxy && (
             <div className="field">
-              <span id="record-proxy-label">代理状态</span>
+              <span id={proxyLabelId}>代理状态</span>
               <div className="proxy-control">
                 <Switch
                   checked={proxied}
                   onCheckedChange={setProxied}
-                  aria-labelledby="record-proxy-label"
+                  aria-labelledby={proxyLabelId}
                 />
                 <span className="proxy-status">
                   <ProxyCloud proxied={isProxied} />
@@ -405,23 +412,32 @@ export default function Dns() {
     queryFn: ({ signal }) => api<DnsRecord[]>(`${base}/records`, { signal }),
     enabled: Boolean(account && zone),
   });
-  const filtered = (records.data ?? []).filter(
-    (record) =>
-      `${record.name} ${record.content} ${record.comment ?? ""}`
-        .toLowerCase()
-        .includes(search.toLowerCase()) &&
-      (type === "all" || type === record.type) &&
-      (proxy === "all" || String(Boolean(record.proxied)) === proxy),
+  const filtered = useMemo(() => {
+    const keyword = search.toLowerCase();
+    return (records.data ?? []).filter(
+      (record) =>
+        `${record.name} ${record.content} ${record.comment ?? ""}`
+          .toLowerCase()
+          .includes(keyword) &&
+        (type === "all" || type === record.type) &&
+        (proxy === "all" || String(Boolean(record.proxied)) === proxy),
+    );
+  }, [records.data, search, type, proxy]);
+  const selectedRecords = useMemo(
+    () => (records.data ?? []).filter((record) => selected.has(record.id)),
+    [records.data, selected],
   );
-  const selectedRecords = (records.data ?? []).filter((record) =>
-    selected.has(record.id),
-  );
-  const availableZones = (zones.data ?? []).filter((item) =>
-    item.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const availableZones = useMemo(() => {
+    const keyword = search.toLowerCase();
+    return (zones.data ?? []).filter((item) =>
+      item.name.toLowerCase().includes(keyword),
+    );
+  }, [zones.data, search]);
   async function refreshRecords() {
     setSelected(new Set());
-    await client.invalidateQueries({ queryKey: ["records"] });
+    await client.invalidateQueries({
+      queryKey: ["records", account?.id, zoneId],
+    });
   }
   if (!account)
     return (
@@ -450,6 +466,9 @@ export default function Dns() {
               onClick={() => {
                 setParams({});
                 setSearch("");
+                setType("all");
+                setProxy("all");
+                setEditing(null);
                 setSelected(new Set());
               }}
             >
@@ -641,7 +660,12 @@ export default function Dns() {
                 const file = event.target.files?.[0];
                 if (file)
                   void run(async () => {
-                    const data = JSON.parse(await file.text());
+                    let data: unknown;
+                    try {
+                      data = JSON.parse(await file.text());
+                    } catch {
+                      throw new Error("导入文件不是有效的 JSON 格式");
+                    }
                     if (
                       !Array.isArray(data) ||
                       data.length < 1 ||
@@ -677,7 +701,9 @@ export default function Dns() {
                     pending ||
                     recordSaving ||
                     selectedRecords.some(
-                      (item) => !["A", "AAAA", "CNAME"].includes(item.type),
+                      (item) =>
+                        item.proxiable === false ||
+                        !["A", "AAAA", "CNAME"].includes(item.type),
                     )
                   }
                   onClick={() =>
@@ -703,7 +729,9 @@ export default function Dns() {
                     pending ||
                     recordSaving ||
                     selectedRecords.some(
-                      (item) => !["A", "AAAA", "CNAME"].includes(item.type),
+                      (item) =>
+                        item.proxiable === false ||
+                        !["A", "AAAA", "CNAME"].includes(item.type),
                     )
                   }
                   onClick={() =>

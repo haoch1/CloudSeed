@@ -68,6 +68,26 @@ function put(
   });
 }
 
+function waitWithAbort(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason ?? new DOMException("上传已取消", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason ?? new DOMException("上传已取消", "AbortError"));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+const multipartConcurrency = 3;
+
 export async function uploadFile(
   base: string,
   file: File,
@@ -124,37 +144,84 @@ export async function uploadFile(
         return;
       }
     } else {
-      for (
-        let offset = 0, partNumber = 1;
-        offset < file.size;
-        offset += session.partSize, partNumber++
-      ) {
-        signal.throwIfAborted();
-        const blob = file.slice(
-          offset,
-          Math.min(file.size, offset + session.partSize),
-        );
-        let etag = "";
-        for (let attempt = 0; attempt < 3; attempt++) {
-          try {
-            const { url } = await request<{ url: string }>(
-              `${uploadPath}/part`,
-              { method: "POST", body: { partNumber }, signal },
-            );
-            etag = await put(url, blob, signal, (bytes) =>
-              onProgress(Math.min(99, ((offset + bytes) / file.size) * 100)),
-            );
-            break;
-          } catch (error) {
-            if (signal.aborted || attempt === 2) throw error;
-          }
-        }
-        if (!etag)
-          throw new Error(
-            "R2 未返回 ETag，请在 CORS ExposeHeaders 中添加 ETag",
+      const totalParts = Math.ceil(file.size / session.partSize);
+      const partLoaded = new Array<number>(totalParts).fill(0);
+      const reportProgress = () => {
+        const loaded = partLoaded.reduce((sum, bytes) => sum + bytes, 0);
+        onProgress(Math.min(99, (loaded / file.size) * 100));
+      };
+      const multipartController = new AbortController();
+      const onOuterAbort = () => multipartController.abort(signal.reason);
+      if (signal.aborted) onOuterAbort();
+      else signal.addEventListener("abort", onOuterAbort, { once: true });
+      let nextPartIndex = 0;
+      const uploadWorker = async () => {
+        while (nextPartIndex < totalParts) {
+          const partIndex = nextPartIndex++;
+          const partNumber = partIndex + 1;
+          const offset = partIndex * session.partSize;
+          multipartController.signal.throwIfAborted();
+          const blob = file.slice(
+            offset,
+            Math.min(file.size, offset + session.partSize),
           );
-        parts.push({ PartNumber: partNumber, ETag: etag });
+          let etag = "";
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              const { url } = await request<{ url: string }>(
+                `${uploadPath}/part`,
+                {
+                  method: "POST",
+                  body: { partNumber },
+                  signal: multipartController.signal,
+                },
+              );
+              etag = await put(
+                url,
+                blob,
+                multipartController.signal,
+                (bytes) => {
+                  partLoaded[partIndex] = bytes;
+                  reportProgress();
+                },
+              );
+              partLoaded[partIndex] = blob.size;
+              reportProgress();
+              break;
+            } catch (error) {
+              partLoaded[partIndex] = 0;
+              reportProgress();
+              if (multipartController.signal.aborted || attempt === 2) {
+                multipartController.abort(error);
+                throw error;
+              }
+              await waitWithAbort(
+                500 * 3 ** attempt,
+                multipartController.signal,
+              );
+            }
+          }
+          if (!etag) {
+            const error = new Error(
+              "R2 未返回 ETag，请在 CORS ExposeHeaders 中添加 ETag",
+            );
+            multipartController.abort(error);
+            throw error;
+          }
+          parts.push({ PartNumber: partNumber, ETag: etag });
+        }
+      };
+      try {
+        await Promise.all(
+          Array.from(
+            { length: Math.min(multipartConcurrency, totalParts) },
+            uploadWorker,
+          ),
+        );
+      } finally {
+        signal.removeEventListener("abort", onOuterAbort);
       }
+      parts.sort((a, b) => a.PartNumber - b.PartNumber);
     }
     await request(`${uploadPath}/complete`, {
       method: "POST",

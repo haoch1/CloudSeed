@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { MagnifyingGlassIcon } from "@phosphor-icons/react";
 import { api, formatDate } from "../api";
 import {
@@ -12,6 +12,7 @@ import {
   EmptyState,
   Table,
   Status,
+  useDebouncedValue,
 } from "../ui";
 import type { AuditEntry } from "../../shared/types";
 import { displayAuditAction } from "../../shared/audit";
@@ -19,7 +20,7 @@ import { displayAuditAction } from "../../shared/audit";
 export default function Audit() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const searchTerm = search.trim();
+  const searchTerm = useDebouncedValue(search.trim(), 250);
   const query = useQuery({
     queryKey: ["audit", page, searchTerm],
     queryFn: ({ signal }) => {
@@ -29,6 +30,7 @@ export default function Audit() {
         signal,
       });
     },
+    placeholderData: keepPreviousData,
   });
   return (
     <>

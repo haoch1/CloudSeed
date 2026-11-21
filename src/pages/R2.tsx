@@ -1,7 +1,7 @@
 import { Select } from "@cloudflare/kumo/components/select";
 import { Tabs } from "@cloudflare/kumo/components/tabs";
 import { DropdownMenu } from "@cloudflare/kumo/components/dropdown";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
@@ -329,6 +329,7 @@ function FilePreview({
 function CopyFile({
   item,
   base,
+  bucket,
   buckets,
   move,
   request,
@@ -336,6 +337,7 @@ function CopyFile({
 }: {
   item: ObjectItem;
   base: string;
+  bucket: string;
   buckets: Bucket[];
   move: boolean;
   request: typeof api;
@@ -377,12 +379,12 @@ function CopyFile({
             <Select
               name="destinationBucket"
               aria-label="目标存储桶"
-              defaultValue={buckets[0]?.name}
+              defaultValue={bucket || buckets[0]?.name}
               required
             >
-              {buckets.map((bucket) => (
-                <Select.Option key={bucket.name} value={bucket.name}>
-                  {bucket.name}
+              {buckets.map((itemBucket) => (
+                <Select.Option key={itemBucket.name} value={itemBucket.name}>
+                  {itemBucket.name}
                 </Select.Option>
               ))}
             </Select>
@@ -396,7 +398,7 @@ function CopyFile({
           />
         </div>
         <div className="modal-footer">
-          <Button type="button" onClick={onClose}>
+          <Button type="button" onClick={onClose} disabled={pending}>
             取消
           </Button>
           <SubmitButton pending={pending}>
@@ -424,7 +426,7 @@ function ShareFile({
   const { pending, run } = useAction();
   const notify = useToast();
   return (
-    <Modal title="分享链接" onClose={onClose}>
+    <Modal title="分享链接" onClose={onClose} busy={pending}>
       <form
         onSubmit={(event) =>
           submit(event, (data) =>
@@ -482,7 +484,7 @@ function ShareFile({
           />
         </div>
         <div className="modal-footer">
-          <Button type="button" onClick={onClose}>
+          <Button type="button" onClick={onClose} disabled={pending}>
             关闭
           </Button>
           <Button
@@ -557,6 +559,7 @@ function Objects({
   useEffect(() => {
     setCursor(undefined);
     setHistory([]);
+    setSearch("");
     setSelected(new Set());
   }, [prefix]);
   function updateTask(id: string, update: Partial<UploadTask>) {
@@ -610,14 +613,19 @@ function Objects({
     setUploading(false);
     await client.invalidateQueries({ queryKey: ["objects", base] });
   }
-  const filteredObjects = (objects.data?.objects ?? []).filter(
-    (item) =>
-      item.key !== prefix &&
-      item.key.toLowerCase().includes(search.toLowerCase()),
-  );
-  const folders = (objects.data?.folders ?? []).filter((item) =>
-    item.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filteredObjects = useMemo(() => {
+    const keyword = search.toLowerCase();
+    return (objects.data?.objects ?? []).filter(
+      (item) =>
+        item.key !== prefix && item.key.toLowerCase().includes(keyword),
+    );
+  }, [objects.data?.objects, prefix, search]);
+  const folders = useMemo(() => {
+    const keyword = search.toLowerCase();
+    return (objects.data?.folders ?? []).filter((item) =>
+      item.toLowerCase().includes(keyword),
+    );
+  }, [objects.data?.folders, search]);
   const items = [...folders, ...filteredObjects.map((item) => item.key)];
   const chosen = filteredObjects
     .filter((item) => selected.has(item.key))
@@ -1056,6 +1064,7 @@ function Objects({
       )}
       {preview && (
         <FilePreview
+          key={preview.key}
           item={preview}
           base={base}
           jurisdiction={jurisdiction}
@@ -1076,6 +1085,7 @@ function Objects({
         <CopyFile
           {...copying}
           base={base}
+          bucket={bucket}
           request={request}
           buckets={buckets}
           onClose={() => setCopying(null)}
@@ -1158,7 +1168,11 @@ function Objects({
               <Input label="文件夹名称" name="name" required maxLength={255} />
             </div>
             <div className="modal-footer">
-              <Button type="button" onClick={() => setFolder(false)}>
+              <Button
+                type="button"
+                onClick={() => setFolder(false)}
+                disabled={pending}
+              >
                 取消
               </Button>
               <SubmitButton pending={pending}>创建</SubmitButton>
@@ -1190,9 +1204,12 @@ export default function R2() {
     enabled: Boolean(account),
   });
   const base = `${collection}/${encodeURIComponent(bucket || "")}`;
-  const filtered = (query.data ?? []).filter((item) =>
-    item.name.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = useMemo(() => {
+    const keyword = search.toLowerCase();
+    return (query.data ?? []).filter((item) =>
+      item.name.toLowerCase().includes(keyword),
+    );
+  }, [query.data, search]);
   function changeParams(values: Record<string, string>) {
     setParams({ ...Object.fromEntries(params), ...values });
   }

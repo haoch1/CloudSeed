@@ -22,13 +22,22 @@ export async function api<T>(
     const { demoRequest } = await import("./demo");
     return demoRequest<T>(path, options);
   }
-  const response = await fetch(`/api${path}`, {
-    method: options.method ?? "GET",
-    credentials: "same-origin",
-    signal: options.signal,
-    headers: { "Content-Type": "application/json", "X-CloudSeed-Request": "1" },
-    body: options.body === undefined ? undefined : JSON.stringify(options.body),
-  });
+  const headers: Record<string, string> = { "X-CloudSeed-Request": "1" };
+  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  let response: Response;
+  try {
+    response = await fetch(`/api${path}`, {
+      method: options.method ?? "GET",
+      credentials: "same-origin",
+      signal: options.signal,
+      headers,
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+  } catch (error) {
+    if (options.signal?.aborted) throw error;
+    throw new RequestError(0, "无法连接服务，请检查网络或服务状态");
+  }
   const data = await response
     .json()
     .catch(() => ({ error: "服务响应格式异常" }));
@@ -58,7 +67,7 @@ export function downloadJson(filename: string, value: unknown): void {
 }
 
 export function formatBytes(size: number): string {
-  if (!size) return "0 B";
+  if (!Number.isFinite(size) || size <= 0) return "0 B";
   const index = Math.min(4, Math.floor(Math.log(size) / Math.log(1024)));
   return `${(size / 1024 ** index).toLocaleString("zh-CN", { maximumFractionDigits: 1 })} ${["B", "KiB", "MiB", "GiB", "TiB"][index]}`;
 }

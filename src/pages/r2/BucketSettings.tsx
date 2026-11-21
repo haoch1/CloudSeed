@@ -36,10 +36,10 @@ function JsonSetting({
 }) {
   const query = useQuery({
     queryKey: ["bucket-setting", path, jurisdiction],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       request<{
         rules?: Record<string, unknown>[];
-      }>(path),
+      }>(path, { signal }),
   });
   const [draft, setDraft] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
@@ -76,11 +76,12 @@ function JsonSetting({
               <Button
                 onClick={() =>
                   run(async () => {
-                    const current = JSON.parse(value) as {
-                      rules: {
-                        id?: string;
-                      }[];
-                    };
+                    let current: { rules?: { id?: string }[] };
+                    try {
+                      current = JSON.parse(value);
+                    } catch {
+                      throw new Error("JSON 格式不正确，请检查语法");
+                    }
                     const rules = (current.rules ?? []).filter(
                       (rule) => rule.id !== "cloudseed",
                     );
@@ -108,7 +109,11 @@ function JsonSetting({
               disabled={pending || draft === null}
               onClick={() =>
                 run(async () => {
-                  JSON.parse(value);
+                  try {
+                    JSON.parse(value);
+                  } catch {
+                    throw new Error("JSON 格式不正确，请检查语法");
+                  }
                   setConfirming(true);
                 })
               }
@@ -159,22 +164,24 @@ export function BucketSettings({
   const client = useQueryClient();
   const domains = useQuery({
     queryKey: ["domains", base, jurisdiction],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       request<{
         domains: BucketDomain[];
-      }>(`${base}/domains/custom`),
+      }>(`${base}/domains/custom`, { signal }),
   });
   const managed = useQuery({
     queryKey: ["managed-domain", base, jurisdiction],
-    queryFn: () =>
+    queryFn: ({ signal }) =>
       request<{
         domain: string;
         enabled: boolean;
-      }>(`${base}/domains/managed`),
+      }>(`${base}/domains/managed`, { signal }),
   });
   const zones = useQuery({
     queryKey: ["zones", account?.id],
-    queryFn: () => api<Zone[]>(`/accounts/${account!.id}/dns/zones`),
+    queryFn: ({ signal }) =>
+      api<Zone[]>(`/accounts/${account!.id}/dns/zones`, { signal }),
+    enabled: Boolean(account) && adding,
   });
   return (
     <div className="settings-stack">
@@ -353,7 +360,11 @@ export function BucketSettings({
               <p className="muted">绑定后，域名可公开访问桶内对象</p>
             </div>
             <div className="modal-footer">
-              <Button type="button" onClick={() => setAdding(false)}>
+              <Button
+                type="button"
+                onClick={() => setAdding(false)}
+                disabled={pending}
+              >
                 取消
               </Button>
               <SubmitButton pending={pending}>连接域名</SubmitButton>

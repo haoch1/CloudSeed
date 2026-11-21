@@ -8,5 +8,21 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/api": "http://127.0.0.1:3180" },
   },
-  build: { outDir: "dist" },
+  build: {
+    outDir: "dist",
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (
+            id.includes("node_modules/react/") ||
+            id.includes("node_modules/react-dom/") ||
+            id.includes("node_modules/react-router") ||
+            id.includes("node_modules/@tanstack/")
+          ) {
+            return "vendor";
+          }
+        },
+      },
+    },
+  },
 });
