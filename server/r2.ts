@@ -22,10 +22,19 @@ import {
   cfId,
   jurisdictionSchema,
 } from "./cloudflare.js";
+import { hashToken } from "./security.js";
 import type { ManagedAccount } from "./cloudflare.js";
 import type { Store } from "./store.js";
 import type { Bucket, ObjectPage, Zone } from "../shared/types.js";
 import { r2UploadAction } from "../shared/audit.js";
+
+const s3ClientCache = new Map<string, S3Client>();
+const maxS3Clients = 32;
+
+export function destroyS3Clients(): void {
+  for (const client of s3ClientCache.values()) client.destroy();
+  s3ClientCache.clear();
+}
 
 const objectKey = z
   .string()
@@ -74,12 +83,38 @@ export function s3Client(
   });
 }
 
-export function r2Routes(store: Store, clientFactory = s3Client): Router {
+export function cachedS3Client(
+  account: ManagedAccount,
+  jurisdiction: string,
+): S3Client {
+  if (!account.credentials.accessKeyId || !account.credentials.secretAccessKey)
+    throw new ApiError(400, "请在账号设置中配置 R2 S3 凭据");
+  const cacheKey = `${account.accountId}:${jurisdiction}:${account.credentials.accessKeyId}:${hashToken(account.credentials.secretAccessKey)}`;
+  const cached = s3ClientCache.get(cacheKey);
+  if (cached) {
+    s3ClientCache.delete(cacheKey);
+    s3ClientCache.set(cacheKey, cached);
+    return cached;
+  }
+  const client = s3Client(account, jurisdiction);
+  if (s3ClientCache.size >= maxS3Clients) {
+    const oldestKey = s3ClientCache.keys().next().value;
+    if (oldestKey !== undefined) {
+      s3ClientCache.get(oldestKey)?.destroy();
+      s3ClientCache.delete(oldestKey);
+    }
+  }
+  s3ClientCache.set(cacheKey, client);
+  return client;
+}
+
+export function r2Routes(store: Store, clientFactory = cachedS3Client): Router {
   const router = Router({ mergeParams: true });
   router.use((request, response, next) => {
     const account = store.getAccount(String(request.params.account));
     if (!account) return next(new ApiError(404, "账号不存在"));
     response.locals.account = account;
+    response.locals.cf = accountClient(account);
     response.locals.jurisdiction = jurisdictionSchema.parse(
       request.query.jurisdiction ?? "default",
     );
@@ -303,21 +338,27 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
       }),
     );
     // 条件 GET 与 PUT 流式转发，目标写入时核对不存在
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: input.destinationBucket,
-        Key: input.destinationKey,
-        Body: snapshot.Body,
-        ContentLength: snapshot.ContentLength,
-        ContentType: snapshot.ContentType,
-        CacheControl: snapshot.CacheControl,
-        ContentDisposition: snapshot.ContentDisposition,
-        ContentEncoding: snapshot.ContentEncoding,
-        ContentLanguage: snapshot.ContentLanguage,
-        Metadata: snapshot.Metadata,
-        IfNoneMatch: "*",
-      }),
-    );
+    try {
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: input.destinationBucket,
+          Key: input.destinationKey,
+          Body: snapshot.Body,
+          ContentLength: snapshot.ContentLength,
+          ContentType: snapshot.ContentType,
+          CacheControl: snapshot.CacheControl,
+          ContentDisposition: snapshot.ContentDisposition,
+          ContentEncoding: snapshot.ContentEncoding,
+          ContentLanguage: snapshot.ContentLanguage,
+          Metadata: snapshot.Metadata,
+          IfNoneMatch: "*",
+        }),
+      );
+    } catch (error) {
+      const body = snapshot.Body as { destroy?: () => void } | undefined;
+      body?.destroy?.();
+      throw error;
+    }
     if (input.move) {
       const current = await s3.send(
         new HeadObjectCommand({
@@ -436,6 +477,7 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         },
       );
     }
+    store.pruneStaleUploads();
     try {
       store.db
         .prepare(
@@ -454,13 +496,15 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
         );
     } catch (error) {
       if (uploadId)
-        await s3.send(
-          new AbortMultipartUploadCommand({
-            Bucket: response.locals.bucket,
-            Key: input.key,
-            UploadId: uploadId,
-          }),
-        );
+        await s3
+          .send(
+            new AbortMultipartUploadCommand({
+              Bucket: response.locals.bucket,
+              Key: input.key,
+              UploadId: uploadId,
+            }),
+          )
+          .catch(() => undefined);
       throw error;
     }
     const partSize = Math.max(
@@ -605,17 +649,26 @@ export function r2Routes(store: Store, clientFactory = s3Client): Router {
     "/buckets/:bucket/uploads/:upload",
     async (_request, response) => {
       const upload = response.locals.upload as Upload;
-      if (upload.upload_id && !upload.completed)
-        await clientFactory(
-          response.locals.account,
-          response.locals.jurisdiction,
-        ).send(
-          new AbortMultipartUploadCommand({
-            Bucket: upload.bucket,
-            Key: upload.object_key,
-            UploadId: upload.upload_id,
-          }),
-        );
+      if (upload.upload_id && !upload.completed) {
+        try {
+          await clientFactory(
+            response.locals.account,
+            response.locals.jurisdiction,
+          ).send(
+            new AbortMultipartUploadCommand({
+              Bucket: upload.bucket,
+              Key: upload.object_key,
+              UploadId: upload.upload_id,
+            }),
+          );
+        } catch (error) {
+          if (
+            (error as { $metadata?: { httpStatusCode?: number } }).$metadata
+              ?.httpStatusCode !== 404
+          )
+            throw error;
+        }
+      }
       store.db.prepare("DELETE FROM uploads WHERE id = ?").run(upload.id);
       response.json({ ok: true });
     },

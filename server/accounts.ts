@@ -56,11 +56,7 @@ export function accountRoutes(store: Store): Router {
         400,
         "请同时填写 R2 Access Key ID 和 Secret Access Key",
       );
-    if (
-      store
-        .listAccounts()
-        .some((account) => account.accountId === input.accountId)
-    )
+    if (store.hasAccountId(input.accountId))
       throw new ApiError(409, "该 Cloudflare 账号已添加");
     const client = new Cloudflare(input.token);
     await client.call(`/zones?account.id=${input.accountId}&per_page=1`);
@@ -110,14 +106,7 @@ export function accountRoutes(store: Store): Router {
     await new Cloudflare(token).call(
       `/zones?account.id=${input.accountId}&per_page=1`,
     );
-    if (
-      store
-        .listAccounts()
-        .some(
-          (item) =>
-            item.id !== account.id && item.accountId === input.accountId,
-        )
-    )
+    if (store.hasAccountId(input.accountId, account.id))
       throw new ApiError(409, "该 Cloudflare 账号已添加");
     response.json(store.saveAccount({ id: account.id, ...input, credentials }));
     store.audit("更新账号", account.name, input.accountId);

@@ -269,6 +269,10 @@ export function authRoutes(store: Store): Router {
     },
   );
   router.post("/password", requireAuth(store), (request, response) => {
+    response.locals.auditAttempt = {
+      action: "修改管理员密码",
+      resource: "管理员",
+    };
     const input = z
       .object({
         currentPassword: z.string().max(256),

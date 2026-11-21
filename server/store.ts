@@ -23,6 +23,7 @@ export class Store {
   readonly db: DatabaseSync;
   readonly key: Buffer;
   readonly setupToken: string;
+  private lastUploadPrune = 0;
 
   constructor(directory: string) {
     const root = resolve(directory);
@@ -73,6 +74,8 @@ export class Store {
       CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL, account_id TEXT NOT NULL UNIQUE, credentials TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE TABLE IF NOT EXISTS audit (id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, account_name TEXT NOT NULL, resource TEXT NOT NULL, status TEXT NOT NULL, detail TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')));
       CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, bucket TEXT NOT NULL, jurisdiction TEXT NOT NULL, object_key TEXT NOT NULL, size INTEGER NOT NULL, upload_id TEXT, expected_etag TEXT, completed INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires);
+      CREATE INDEX IF NOT EXISTS idx_uploads_created_at ON uploads(created_at);
     `);
     const sessionColumns = this.db
       .prepare("PRAGMA table_info(sessions)")
@@ -100,6 +103,17 @@ export class Store {
     };
   }
 
+  hasAccountId(accountId: string, excludeId?: string): boolean {
+    const row = excludeId
+      ? this.db
+          .prepare("SELECT 1 FROM accounts WHERE account_id = ? AND id != ?")
+          .get(accountId, excludeId)
+      : this.db
+          .prepare("SELECT 1 FROM accounts WHERE account_id = ?")
+          .get(accountId);
+    return Boolean(row);
+  }
+
   saveAccount(input: {
     id?: string;
     name: string;
@@ -121,7 +135,19 @@ export class Store {
         )
         .run(id, input.name, input.accountId, encrypted);
     }
-    return this.listAccounts().find((account) => account.id === id)!;
+    const row = this.db
+      .prepare("SELECT * FROM accounts WHERE id = ?")
+      .get(id) as unknown as AccountRow;
+    return this.publicAccount(row);
+  }
+
+  pruneStaleUploads(maxAgeMs = 7 * 24 * 60 * 60 * 1000): void {
+    const now = Date.now();
+    if (now - this.lastUploadPrune < 60 * 60 * 1000) return;
+    this.lastUploadPrune = now;
+    this.db
+      .prepare("DELETE FROM uploads WHERE created_at < ?")
+      .run(now - maxAgeMs);
   }
 
   audit(
@@ -146,19 +172,37 @@ export class Store {
 
   listAudit(page: number, search = ""): { items: AuditEntry[]; total: number } {
     const term = search.trim();
-    const where = term
-      ? " WHERE audit_search_match(?, action, account_name, resource, status, detail) = 1"
-      : "";
-    const searchParams = term ? [term] : [];
-    const items = this.db
+    const offset = (page - 1) * 50;
+    if (!term) {
+      const items = this.db
+        .prepare(
+          "SELECT id, action, account_name AS accountName, resource, status, detail, created_at AS createdAt FROM audit ORDER BY id DESC LIMIT 50 OFFSET ?",
+        )
+        .all(offset) as unknown as AuditEntry[];
+      const count = this.db
+        .prepare("SELECT COUNT(*) AS total FROM audit")
+        .get() as { total: number };
+      return { items, total: count.total };
+    }
+    const rows = this.db
       .prepare(
-        `SELECT id, action, account_name AS accountName, resource, status, detail, created_at AS createdAt FROM audit${where} ORDER BY id DESC LIMIT 50 OFFSET ?`,
+        "SELECT id, action, account_name AS accountName, resource, status, detail, created_at AS createdAt, COUNT(*) OVER() AS total FROM audit WHERE audit_search_match(?, action, account_name, resource, status, detail) = 1 ORDER BY id DESC LIMIT 50 OFFSET ?",
       )
-      .all(...searchParams, (page - 1) * 50) as unknown as AuditEntry[];
+      .all(term, offset) as unknown as (AuditEntry & { total: number })[];
+    if (rows.length > 0) {
+      const total = rows[0].total;
+      const items: AuditEntry[] = rows.map(
+        ({ total: _total, ...entry }) => entry,
+      );
+      return { items, total };
+    }
+    if (page === 1) return { items: [], total: 0 };
     const count = this.db
-      .prepare(`SELECT COUNT(*) AS total FROM audit${where}`)
-      .get(...searchParams) as { total: number };
-    return { items, total: count.total };
+      .prepare(
+        "SELECT COUNT(*) AS total FROM audit WHERE audit_search_match(?, action, account_name, resource, status, detail) = 1",
+      )
+      .get(term) as { total: number };
+    return { items: [], total: count.total };
   }
 
   private publicAccount(row: AccountRow): Account {

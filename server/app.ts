@@ -10,13 +10,13 @@ import { ApiError } from "./cloudflare.js";
 import { authRoutes, requireAuth } from "./auth.js";
 import { accountRoutes } from "./accounts.js";
 import { dnsRoutes } from "./dns.js";
-import { r2Routes, s3Client } from "./r2.js";
+import { cachedS3Client, r2Routes } from "./r2.js";
 import {
   auditActionForRequest,
   type AuditDescription,
 } from "../shared/audit.js";
 
-export function createApp(store: Store, r2Client = s3Client) {
+export function createApp(store: Store, r2Client = cachedS3Client) {
   const app = express();
   app.disable("x-powered-by");
   if (process.env.TRUST_PROXY === "true") app.set("trust proxy", 1);
@@ -87,10 +87,26 @@ export function createApp(store: Store, r2Client = s3Client) {
   );
   const dist = resolve("dist");
   if (existsSync(dist)) {
-    app.use(express.static(dist, { index: false }));
-    app.get("/{*path}", (_request, response) =>
-      response.sendFile(resolve(dist, "index.html")),
+    app.use(
+      "/assets",
+      express.static(resolve(dist, "assets"), {
+        index: false,
+        maxAge: "1y",
+        immutable: true,
+      }),
     );
+    app.use(
+      express.static(dist, {
+        index: false,
+        setHeaders: (response) => {
+          response.set("Cache-Control", "no-cache");
+        },
+      }),
+    );
+    app.get("/{*path}", (_request, response) => {
+      response.set("Cache-Control", "no-cache");
+      response.sendFile(resolve(dist, "index.html"));
+    });
   }
   const errors: ErrorRequestHandler = (error, request, response, _next) => {
     const upstreamStatus = error.$metadata?.httpStatusCode as
@@ -99,25 +115,29 @@ export function createApp(store: Store, r2Client = s3Client) {
     const status =
       error instanceof ZodError || error.type === "entity.parse.failed"
         ? 400
-        : error instanceof ApiError
-          ? error.status
-          : upstreamStatus === 404
-            ? 404
-            : upstreamStatus === 403
-              ? 403
-              : upstreamStatus === 412
-                ? 409
-                : 500;
+        : error.type === "entity.too.large"
+          ? 413
+          : error instanceof ApiError
+            ? error.status
+            : upstreamStatus === 404
+              ? 404
+              : upstreamStatus === 403
+                ? 403
+                : upstreamStatus === 412
+                  ? 409
+                  : 500;
     const message =
       error instanceof ZodError
         ? error.issues.map((issue) => issue.message).join("；")
-        : error instanceof ApiError
-          ? error.message
-          : upstreamStatus
-            ? `R2 ${error.name}，${error.message}`
-            : error.type === "entity.parse.failed"
-              ? "JSON 格式不正确"
-              : "服务处理失败，请查看配置后重试";
+        : error.type === "entity.too.large"
+          ? "请求体过大"
+          : error instanceof ApiError
+            ? error.message
+            : upstreamStatus
+              ? `R2 ${error.name}，${error.message}`
+              : error.type === "entity.parse.failed"
+                ? "JSON 格式不正确"
+                : "服务处理失败，请查看配置后重试";
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method) && status >= 400) {
       const attempt = response.locals.auditAttempt as
         | Partial<AuditDescription>

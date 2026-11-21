@@ -2,6 +2,7 @@ import { Store } from "./store.js";
 import { createApp } from "./app.js";
 import { existsSync } from "node:fs";
 import { bootstrapAdmin } from "./auth.js";
+import { destroyS3Clients } from "./r2.js";
 
 process.title = "cloudseed";
 if (existsSync(".env")) process.loadEnvFile(".env");
@@ -21,9 +22,21 @@ const server = createApp(store).listen(port, host, () => {
   }
 });
 
+let shuttingDown = false;
 for (const signal of ["SIGINT", "SIGTERM"])
   process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const forceExit = setTimeout(() => {
+      destroyS3Clients();
+      store.db.close();
+      process.exit(0);
+    }, 5000);
+    forceExit.unref();
+    server.closeIdleConnections();
     server.close(() => {
+      clearTimeout(forceExit);
+      destroyS3Clients();
       store.db.close();
       process.exit(0);
     });

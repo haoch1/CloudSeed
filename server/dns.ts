@@ -1,6 +1,12 @@
-import { Router } from "express";
+import { Router, type Response } from "express";
 import { z } from "zod";
-import { accountClient, ApiError, cfId, dnsSchema } from "./cloudflare.js";
+import {
+  accountClient,
+  ApiError,
+  cfId,
+  Cloudflare,
+  dnsSchema,
+} from "./cloudflare.js";
 import type { Store } from "./store.js";
 import type { DnsRecord, Zone } from "../shared/types.js";
 import {
@@ -9,6 +15,8 @@ import {
   dnsRecordResource,
   type DnsBatchResult,
 } from "../shared/audit.js";
+
+const cf = (response: Response) => response.locals.cf as Cloudflare;
 
 export function dnsRoutes(store: Store): Router {
   const router = Router({ mergeParams: true });
@@ -21,7 +29,7 @@ export function dnsRoutes(store: Store): Router {
   });
   router.get("/zones", async (_request, response) => {
     response.json(
-      await accountClient(response.locals.account).list<Zone>(
+      await cf(response).list<Zone>(
         `/zones?account.id=${response.locals.account.accountId}`,
       ),
     );
@@ -29,7 +37,7 @@ export function dnsRoutes(store: Store): Router {
   // 验证 Zone 归属，限制令牌可访问多个账号时的跨账号误操作
   router.use("/zones/:zone", async (request, response, next) => {
     const zoneId = cfId.parse(request.params.zone);
-    const { result } = await accountClient(response.locals.account).call<
+    const { result } = await cf(response).call<
       Zone & { account: { id: string } }
     >(`/zones/${zoneId}`);
     if (result.account.id !== response.locals.account.accountId)
@@ -40,7 +48,7 @@ export function dnsRoutes(store: Store): Router {
   });
   router.get("/zones/:zone/records", async (_request, response) => {
     response.json(
-      await accountClient(response.locals.account).list<DnsRecord>(
+      await cf(response).list<DnsRecord>(
         `/zones/${response.locals.zoneId}/dns_records`,
       ),
     );
@@ -51,12 +59,13 @@ export function dnsRoutes(store: Store): Router {
       action: "新增 DNS 记录",
       resource: dnsRecordResource(input, response.locals.zoneName),
     };
-    const { result } = await accountClient(
-      response.locals.account,
-    ).call<DnsRecord>(`/zones/${response.locals.zoneId}/dns_records`, {
-      method: "POST",
-      body: input,
-    });
+    const { result } = await cf(response).call<DnsRecord>(
+      `/zones/${response.locals.zoneId}/dns_records`,
+      {
+        method: "POST",
+        body: input,
+      },
+    );
     store.audit(
       "新增 DNS 记录",
       response.locals.account.name,
@@ -66,7 +75,18 @@ export function dnsRoutes(store: Store): Router {
   });
   router.patch("/zones/:zone/records/:record", async (request, response) => {
     const record = cfId.parse(request.params.record);
-    const input = z.object(dnsSchema.shape).partial().parse(request.body);
+    const input = z
+      .object(dnsSchema.shape)
+      .partial()
+      .superRefine((value, context) => {
+        if (
+          value.type &&
+          value.proxied &&
+          !["A", "AAAA", "CNAME"].includes(value.type)
+        )
+          context.addIssue({ code: "custom", message: "该记录类型不支持代理" });
+      })
+      .parse(request.body);
     if (!Object.keys(input).length)
       throw new ApiError(400, "未提供要修改的字段");
     response.locals.auditAttempt = describeDnsUpdate(
@@ -74,9 +94,7 @@ export function dnsRoutes(store: Store): Router {
       response.locals.zoneName,
       record,
     );
-    const { result } = await accountClient(
-      response.locals.account,
-    ).call<DnsRecord>(
+    const { result } = await cf(response).call<DnsRecord>(
       `/zones/${response.locals.zoneId}/dns_records/${record}`,
       { method: "PATCH", body: input },
     );
@@ -95,7 +113,7 @@ export function dnsRoutes(store: Store): Router {
       action: "删除 DNS 记录",
       resource: `${response.locals.zoneName} / ${record}`,
     };
-    await accountClient(response.locals.account).call(
+    await cf(response).call(
       `/zones/${response.locals.zoneId}/dns_records/${record}`,
       { method: "DELETE" },
     );
@@ -130,9 +148,7 @@ export function dnsRoutes(store: Store): Router {
       input,
       response.locals.zoneName,
     );
-    const { result } = await accountClient(
-      response.locals.account,
-    ).call<DnsBatchResult>(
+    const { result } = await cf(response).call<DnsBatchResult>(
       `/zones/${response.locals.zoneId}/dns_records/batch`,
       { method: "POST", body: input },
     );

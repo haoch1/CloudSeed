@@ -37,17 +37,43 @@ export class Cloudflare {
       headers["Content-Type"] = "application/json";
     if (options.jurisdiction && options.jurisdiction !== "default")
       headers["cf-r2-jurisdiction"] = options.jurisdiction;
-    const response = await this.transport(
-      `https://api.cloudflare.com/client/v4${path}`,
-      {
-        method: options.method ?? "GET",
-        headers,
-        body:
-          options.body === undefined ? undefined : JSON.stringify(options.body),
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    const data = (await response.json()) as CloudflareResponse<T>;
+    let response: Response;
+    try {
+      response = await this.transport(
+        `https://api.cloudflare.com/client/v4${path}`,
+        {
+          method: options.method ?? "GET",
+          headers,
+          body:
+            options.body === undefined
+              ? undefined
+              : JSON.stringify(options.body),
+          signal: AbortSignal.timeout(30_000),
+        },
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        (error.name === "TimeoutError" || error.name === "AbortError")
+      ) {
+        throw new ApiError(504, "请求 Cloudflare 超时，请稍后重试");
+      }
+      throw new ApiError(502, "无法连接 Cloudflare API，请检查网络");
+    }
+    const text = await response.text();
+    let data: CloudflareResponse<T>;
+    try {
+      data = (text ? JSON.parse(text) : {}) as CloudflareResponse<T>;
+    } catch {
+      throw new ApiError(
+        response.status === 401 || response.status === 403
+          ? 403
+          : response.status === 429
+            ? 429
+            : 502,
+        `Cloudflare 返回了非 JSON 响应 (${response.status})`,
+      );
+    }
     if (!response.ok || data.success === false) {
       const message =
         data.errors
