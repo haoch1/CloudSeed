@@ -7,13 +7,13 @@ import {
   RefreshButton,
   Input,
   PageHeader,
-  Loading,
   ErrorState,
   EmptyState,
   Table,
   Status,
   useDebouncedValue,
 } from "../ui";
+import { TableSkeleton } from "../Skeleton";
 import type { AuditEntry } from "../../shared/types";
 import { displayAuditAction } from "../../shared/audit";
 
@@ -57,7 +57,7 @@ export default function Audit() {
       </div>
       <section className="panel">
         {query.isPending ? (
-          <Loading />
+          <TableSkeleton kind="audit" label="正在加载操作记录" footer />
         ) : query.error ? (
           <ErrorState error={query.error} retry={() => void query.refetch()} />
         ) : !query.data?.items.length ? (

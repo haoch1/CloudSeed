@@ -32,7 +32,6 @@ import {
   PageHeader,
   EmptyState,
   ErrorState,
-  Loading,
   Table,
   Modal,
   Confirm,
@@ -42,6 +41,13 @@ import {
   useAction,
   useToast,
 } from "../ui";
+import {
+  BucketSettingsShape,
+  PreviewSkeleton,
+  SkeletonRegion,
+  TableSkeleton,
+  ToolbarShape,
+} from "../Skeleton";
 import { uploadFile, type UploadTask } from "../upload";
 import { BucketSettings } from "./r2/BucketSettings";
 import type {
@@ -79,7 +85,7 @@ function ObjectLinks({
   return (
     <section className="panel object-links">
       {domains.isPending ? (
-        <Loading />
+        <TableSkeleton kind="links" label="正在加载自定义域名链接" rows={1} header={false} />
       ) : domains.error ? (
         <ErrorState
           error={domains.error}
@@ -155,7 +161,10 @@ function FilePreview({
   request: typeof api;
   onClose: () => void;
 }) {
-  const [mediaError, setMediaError] = useState(false);
+  const [mediaResult, setMediaResult] = useState<{
+    url: string;
+    status: "loaded" | "failed";
+  }>();
   const link = useQuery({
     queryKey: ["preview", base, jurisdiction, item.key],
     queryFn: () =>
@@ -206,6 +215,27 @@ function FilePreview({
   ].includes(extension);
   const isVideo = ["mp4", "webm", "mov", "m4v"].includes(extension);
   const isAudio = ["mp3", "wav", "ogg", "m4a", "flac"].includes(extension);
+  const isPdf = extension === "pdf";
+  const isMedia = isImage || isVideo || isAudio || isPdf;
+  const textSupported = isText && item.size <= 1024 ** 2;
+  const previewKind = isPdf
+    ? "pdf"
+    : isAudio
+      ? "audio"
+      : isMedia
+        ? "media"
+        : textSupported
+          ? "text"
+          : "compact";
+  const mediaUrl = link.data?.url;
+  const mediaStatus =
+    mediaResult?.url === mediaUrl ? mediaResult?.status : undefined;
+  const markMediaLoaded = () => {
+    if (mediaUrl) setMediaResult({ url: mediaUrl, status: "loaded" });
+  };
+  const markMediaFailed = () => {
+    if (mediaUrl) setMediaResult({ url: mediaUrl, status: "failed" });
+  };
   const text = useQuery({
     queryKey: ["preview-text", base, jurisdiction, item.key],
     queryFn: async ({ signal }) => {
@@ -219,7 +249,7 @@ function FilePreview({
       if (!response.ok) throw new Error(`预览加载失败 (${response.status})`);
       return response.text();
     },
-    enabled: Boolean(link.data && isText && item.size <= 1024 ** 2),
+    enabled: Boolean(link.data && textSupported),
     gcTime: 0,
   });
   return (
@@ -243,10 +273,10 @@ function FilePreview({
       </div>
       <div className="preview-body">
         {link.isPending ? (
-          <Loading />
+          <PreviewSkeleton kind={previewKind} toolbar={isMedia} />
         ) : link.error ? (
           <ErrorState error={link.error} />
-        ) : isImage || isVideo || isAudio || extension === "pdf" ? (
+        ) : isMedia ? (
           <div className="preview-frame">
             <div className="preview-toolbar">
               <div className="preview-toolbar-title">
@@ -268,48 +298,58 @@ function FilePreview({
                 在新标签页打开
               </a>
             </div>
-            {mediaError ? (
+            {mediaStatus === "failed" ? (
               <ErrorState error={new Error("文件加载失败，请检查网络或文件格式")} />
-            ) : extension === "pdf" ? (
-              <iframe
-                className="preview-pdf"
-                title="PDF 预览"
-                sandbox="allow-scripts allow-same-origin allow-downloads"
-                src={link.data!.url}
-              />
             ) : (
-              <div className={`preview-media-stage ${isAudio ? "is-audio" : ""}`}>
-                {isImage ? (
-                  <img
-                    alt={item.key}
-                    src={link.data!.url}
-                    onError={() => setMediaError(true)}
-                  />
-                ) : isVideo ? (
-                  <video
-                    controls
-                    preload="metadata"
-                    src={link.data!.url}
-                    onError={() => setMediaError(true)}
+              <div className={!mediaStatus ? "preview-media-loading" : undefined}>
+                {!mediaStatus && <PreviewSkeleton kind={previewKind} />}
+                {isPdf ? (
+                  <iframe
+                    className="preview-pdf preview-media-content"
+                    title="PDF 预览"
+                    sandbox="allow-scripts allow-same-origin allow-downloads"
+                    src={mediaUrl}
+                    onLoad={markMediaLoaded}
+                    onError={markMediaFailed}
                   />
                 ) : (
-                  <audio
-                    controls
-                    preload="metadata"
-                    src={link.data!.url}
-                    onError={() => setMediaError(true)}
-                  />
+                  <div className={`preview-media-stage preview-media-content ${isAudio ? "is-audio" : ""}`}>
+                    {isImage ? (
+                      <img
+                        alt={item.key}
+                        src={mediaUrl}
+                        onLoad={markMediaLoaded}
+                        onError={markMediaFailed}
+                      />
+                    ) : isVideo ? (
+                      <video
+                        controls
+                        preload="metadata"
+                        src={mediaUrl}
+                        onLoadedMetadata={markMediaLoaded}
+                        onError={markMediaFailed}
+                      />
+                    ) : (
+                      <audio
+                        controls
+                        preload="metadata"
+                        src={mediaUrl}
+                        onLoadedMetadata={markMediaLoaded}
+                        onError={markMediaFailed}
+                      />
+                    )}
+                  </div>
                 )}
               </div>
             )}
           </div>
-        ) : isText && item.size <= 1024 ** 2 ? (
+        ) : textSupported ? (
           text.isPending ? (
-            <Loading />
+            <PreviewSkeleton kind="text" />
           ) : text.error ? (
             <ErrorState error={text.error} />
           ) : (
-            <Suspense fallback={<Loading />}>
+            <Suspense fallback={<PreviewSkeleton kind="text" />}>
               <TextPreview text={text.data ?? ""} extension={extension} />
             </Suspense>
           )
@@ -868,7 +908,7 @@ function Objects({
           </div>
         )}
         {objects.isPending ? (
-          <Loading />
+          <TableSkeleton kind="objects" label="正在加载 R2 对象" footer />
         ) : objects.error ? (
           <ErrorState
             error={objects.error}
@@ -1028,33 +1068,35 @@ function Objects({
             </Table>
           </div>
         )}
-        <div className="table-footer">
-          <span>当前页 {items.length} 项</span>
-          <div className="actions">
-            <Button
-              size="sm"
-              disabled={!history.length}
-              onClick={() => {
-                setCursor(history.at(-1));
-                setHistory((current) => current.slice(0, -1));
-                setSelected(new Set());
-              }}
-            >
-              上一页
-            </Button>
-            <Button
-              size="sm"
-              disabled={!objects.data?.cursor}
-              onClick={() => {
-                setHistory((current) => [...current, cursor]);
-                setCursor(objects.data!.cursor);
-                setSelected(new Set());
-              }}
-            >
-              下一页
-            </Button>
+        {!objects.isPending && (
+          <div className="table-footer">
+            <span>当前页 {items.length} 项</span>
+            <div className="actions">
+              <Button
+                size="sm"
+                disabled={!history.length}
+                onClick={() => {
+                  setCursor(history.at(-1));
+                  setHistory((current) => current.slice(0, -1));
+                  setSelected(new Set());
+                }}
+              >
+                上一页
+              </Button>
+              <Button
+                size="sm"
+                disabled={!objects.data?.cursor}
+                onClick={() => {
+                  setHistory((current) => [...current, cursor]);
+                  setCursor(objects.data!.cursor);
+                  setSelected(new Set());
+                }}
+              >
+                下一页
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
       </section>
       {!uploadOpen && (
         <button className="upload-prompt" onClick={() => setUploadOpen(true)}>
@@ -1248,7 +1290,18 @@ export default function R2() {
         <PageHeader title="R2 对象存储" />
       )}
       {query.isPending ? (
-        <Loading />
+        <SkeletonRegion label={bucket ? "正在加载存储桶详情" : "正在加载存储桶"}>
+          <div className={bucket ? "resource-tabs" : "resource-search"}>
+            <ToolbarShape tabs={Boolean(bucket)} />
+          </div>
+          {bucket && tab === "settings" ? (
+            <BucketSettingsShape />
+          ) : (
+            <section className="panel">
+              <TableSkeleton kind={bucket ? "objects" : "buckets"} label="正在加载列表" footer />
+            </section>
+          )}
+        </SkeletonRegion>
       ) : query.error ? (
         <ErrorState error={query.error} retry={() => void query.refetch()} />
       ) : !bucket ? (

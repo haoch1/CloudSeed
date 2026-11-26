@@ -8,12 +8,12 @@ import {
   Button,
   ErrorState,
   Input,
-  Loading,
   PageHeader,
   SubmitButton,
   submit,
   useAction,
 } from "../ui";
+import { SessionShape, SkeletonRegion } from "../Skeleton";
 import { sessionDurationOptions } from "../../shared/session";
 import Accounts from "./Accounts";
 
@@ -31,7 +31,9 @@ function SessionDurationSettings() {
   if (query.isPending)
     return (
       <section className="panel settings-section">
-        <Loading />
+        <SkeletonRegion label="正在加载登录有效期">
+          <SessionShape />
+        </SkeletonRegion>
       </section>
     );
   if (query.isError)

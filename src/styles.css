@@ -657,28 +657,6 @@ a:focus-visible {
   align-items: center;
   gap: 6px;
 }
-.loading {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  justify-content: center;
-  padding: 50px 20px;
-  color: var(--text-color-kumo-subtle);
-  font-size: var(--text-base);
-}
-.spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--color-kumo-line);
-  border-top-color: var(--text-color-kumo-link);
-  border-radius: 50%;
-  animation: spin 0.7s linear infinite;
-}
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
 .error-state {
   display: flex;
   align-items: center;

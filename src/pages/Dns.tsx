@@ -23,7 +23,6 @@ import {
   PageHeader,
   EmptyState,
   ErrorState,
-  Loading,
   Table,
   Status,
   Modal,
@@ -35,6 +34,7 @@ import {
   useAction,
   useToast,
 } from "../ui";
+import { SkeletonLine, TableSkeleton, ToolbarShape } from "../Skeleton";
 import type { DnsRecord, Zone } from "../../shared/types";
 const recordTypes = [
   "A",
@@ -479,7 +479,14 @@ export default function Dns() {
         }
       />
       {zones.isPending ? (
-        <Loading />
+        <>
+          <div className="resource-search">
+            <ToolbarShape />
+          </div>
+          <section className="panel">
+            <TableSkeleton kind={zoneId ? "records" : "zones"} label="正在加载域名" footer />
+          </section>
+        </>
       ) : zones.error ? (
         <ErrorState error={zones.error} retry={() => void zones.refetch()} />
       ) : !zone ? (
@@ -681,9 +688,15 @@ export default function Dns() {
             />
           </div>
           <section className="panel">
-            <div className="table-caption">
-              共 {records.data?.length ?? 0} 条 DNS 记录
-            </div>
+            {records.isPending ? (
+              <div className="table-caption">
+                <SkeletonLine width="6.5rem" />
+              </div>
+            ) : records.data && (
+              <div className="table-caption">
+                共 {records.data.length} 条 DNS 记录
+              </div>
+            )}
             {selectedRecords.length > 0 && (
               <div className="selection-bar">
                 <strong>已选 {selectedRecords.length} 条</strong>
@@ -760,7 +773,7 @@ export default function Dns() {
               </div>
             )}
             {records.isPending ? (
-              <Loading />
+              <TableSkeleton kind="records" label="正在加载 DNS 记录" footer />
             ) : records.error ? (
               <ErrorState
                 error={records.error}
@@ -934,9 +947,11 @@ export default function Dns() {
                 </Table>
               </div>
             )}
-            <div className="table-footer">
-              显示 {filtered.length} 条，共 {records.data?.length ?? 0} 条记录
-            </div>
+            {records.data && (
+              <div className="table-footer">
+                显示 {filtered.length} 条，共 {records.data.length} 条记录
+              </div>
+            )}
           </section>
           {editing === "new" && (
             <RecordForm

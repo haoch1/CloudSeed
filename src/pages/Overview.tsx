@@ -10,9 +10,9 @@ import {
   PageHeader,
   EmptyState,
   ErrorState,
-  Loading,
   Table,
 } from "../ui";
+import { TableSkeleton } from "../Skeleton";
 import type { Bucket, Zone } from "../../shared/types";
 
 export function Overview() {
@@ -78,7 +78,7 @@ export function Overview() {
               </Button>
             </div>
             {zones.isPending ? (
-              <Loading />
+              <TableSkeleton kind="summary" label="正在加载域名" rows={3} header={false} />
             ) : zones.error ? (
               <ErrorState
                 error={zones.error}
@@ -118,7 +118,7 @@ export function Overview() {
               </Button>
             </div>
             {buckets.isPending ? (
-              <Loading />
+              <TableSkeleton kind="summary" label="正在加载存储桶" rows={3} header={false} />
             ) : buckets.error ? (
               <ErrorState
                 error={buckets.error}

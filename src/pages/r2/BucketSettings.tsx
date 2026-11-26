@@ -8,7 +8,6 @@ import {
   Button,
   Input,
   ErrorState,
-  Loading,
   Modal,
   Confirm,
   Field,
@@ -20,6 +19,7 @@ import {
   submit,
   useAction,
 } from "../../ui";
+import { SkeletonLine, SkeletonRegion, TableSkeleton } from "../../Skeleton";
 import type { BucketDomain, Zone } from "../../../shared/types";
 function JsonSetting({
   title,
@@ -58,7 +58,17 @@ function JsonSetting({
         )}
       </div>
       {query.isPending ? (
-        <Loading />
+        <SkeletonRegion label={`正在加载${title}`} className="skeleton-stack">
+          <div className="skeleton-editor">
+            {[34, 58, 45, 65, 38].map((width) => (
+              <SkeletonLine key={width} width={`${width}%`} />
+            ))}
+          </div>
+          <div className="actions">
+            {cors && <SkeletonLine width="8rem" height="2.25rem" />}
+            <SkeletonLine width="5rem" height="2.25rem" />
+          </div>
+        </SkeletonRegion>
       ) : query.error ? (
         <ErrorState error={query.error} retry={() => void query.refetch()} />
       ) : (
@@ -198,7 +208,7 @@ export function BucketSettings({
           </Button>
         </div>
         {domains.isPending ? (
-          <Loading />
+          <TableSkeleton kind="domains" label="正在加载自定义域名" rows={2} />
         ) : domains.error ? (
           <ErrorState
             error={domains.error}
@@ -251,12 +261,18 @@ export function BucketSettings({
             <Text variant="heading" as="h2">
               r2.dev 公共访问
             </Text>
-            <code className="public-url" title={managed.data?.domain}>
-              {managed.data?.domain || "—"}
-            </code>
+            {managed.isPending ? (
+              <SkeletonLine width="min(16rem, 100%)" />
+            ) : (
+              <code className="public-url" title={managed.data?.domain}>
+                {managed.data?.domain || "—"}
+              </code>
+            )}
           </div>
           {managed.isPending ? (
-            <Loading />
+            <SkeletonRegion label="正在加载 r2.dev 公共访问状态">
+              <SkeletonLine width="2.5rem" height="1.25rem" />
+            </SkeletonRegion>
           ) : managed.error ? (
             <ErrorState
               error={managed.error}
@@ -332,25 +348,31 @@ export function BucketSettings({
                   retry={() => void zones.refetch()}
                 />
               )}
-              <Field label="所属域名">
-                <Select
-                  key={zones.data?.[0]?.id}
-                  defaultValue={zones.data?.[0]?.id}
-                  name="zoneId"
-                  required
-                  disabled={zones.isPending}
-                  aria-label="所属域名"
-                  renderValue={(value) =>
-                    zones.data?.find((zone) => zone.id === value)?.name || value
-                  }
-                >
-                  {zones.data?.map((zone) => (
-                    <Select.Option key={zone.id} value={zone.id}>
-                      {zone.name}
-                    </Select.Option>
-                  ))}
-                </Select>
-              </Field>
+              {zones.isPending ? (
+                <SkeletonRegion label="正在加载可绑定的域名" className="field">
+                  <span>所属域名</span>
+                  <SkeletonLine width="min(100%, 14rem)" height="2.25rem" />
+                </SkeletonRegion>
+              ) : (
+                <Field label="所属域名">
+                  <Select
+                    key={zones.data?.[0]?.id}
+                    defaultValue={zones.data?.[0]?.id}
+                    name="zoneId"
+                    required
+                    aria-label="所属域名"
+                    renderValue={(value) =>
+                      zones.data?.find((zone) => zone.id === value)?.name || value
+                    }
+                  >
+                    {zones.data?.map((zone) => (
+                      <Select.Option key={zone.id} value={zone.id}>
+                        {zone.name}
+                      </Select.Option>
+                    ))}
+                  </Select>
+                </Field>
+              )}
               <Input
                 label="访问域名"
                 name="domain"
@@ -367,7 +389,9 @@ export function BucketSettings({
               >
                 取消
               </Button>
-              <SubmitButton pending={pending}>连接域名</SubmitButton>
+              <SubmitButton pending={pending} disabled={!zones.data?.length}>
+                连接域名
+              </SubmitButton>
             </div>
           </form>
         </Modal>

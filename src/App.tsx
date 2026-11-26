@@ -35,10 +35,15 @@ import { api, isDemoMode } from "./api";
 import { resetDemoSession } from "./demo-session";
 import { AccountContext } from "./context";
 import {
+  AuthSkeleton,
+  PageSkeleton,
+  SkeletonLine,
+  SkeletonRegion,
+} from "./Skeleton";
+import {
   Button,
   ErrorBoundary,
   Input,
-  Loading,
   ErrorState,
   submit,
   SubmitButton,
@@ -56,6 +61,17 @@ type AuthStatus = {
   username?: string;
   email?: string;
 };
+function BrandMark() {
+  return (
+    <>
+      <CloudflareLogo variant="glyph" className="brand-logo" />
+      <Text variant="heading" size="lg" as="strong">
+        CloudSeed
+      </Text>
+    </>
+  );
+}
+
 function AuthScreen() {
   const client = useQueryClient();
   const [error, setError] = useState("");
@@ -63,10 +79,7 @@ function AuthScreen() {
   return (
     <div className="auth-page">
       <div className="auth-brand">
-        <CloudflareLogo variant="glyph" className="brand-logo" />
-        <Text variant="heading" size="lg" as="strong">
-          CloudSeed
-        </Text>
+        <BrandMark />
       </div>
       <div className="auth-card">
         <Text variant="heading" size="lg" as="h1">
@@ -171,6 +184,9 @@ function Shell({ username }: { username: string }) {
   const location = useLocation();
   const client = useQueryClient();
   const { pending, run } = useAction();
+  const pageSkeleton = (
+    <PageSkeleton path={location.pathname} search={location.search} />
+  );
   useLayoutEffect(() => {
     document.body.setAttribute("data-1p-ignore", "true");
     document.body.setAttribute("data-op-ignore", "true");
@@ -217,27 +233,30 @@ function Shell({ username }: { username: string }) {
         <Sidebar className="app-sidebar">
           <Sidebar.Header className="sidebar-header">
             <NavLink className="brand" to="/overview">
-              <CloudflareLogo variant="glyph" className="brand-logo" />
-              <Text variant="heading" size="lg" as="strong">
-                CloudSeed
-              </Text>
+              <BrandMark />
             </NavLink>
             <div className="account-switch">
-              <Select
-                aria-label="切换 Cloudflare 账号"
-                renderValue={() => account?.name || "添加 Cloudflare 账号"}
-                value={account?.id ?? ""}
-                onValueChange={(value) => changeAccount(value ?? "")}
-              >
-                {!accounts.data?.length && (
-                  <Select.Option value="">添加 Cloudflare 账号</Select.Option>
-                )}
-                {accounts.data?.map((item) => (
-                  <Select.Option key={item.id} value={item.id}>
-                    {item.name}
-                  </Select.Option>
-                ))}
-              </Select>
+              {accounts.isPending ? (
+                <SkeletonRegion label="正在加载 Cloudflare 账号">
+                  <SkeletonLine width="100%" height="2.25rem" />
+                </SkeletonRegion>
+              ) : (
+                <Select
+                  aria-label="切换 Cloudflare 账号"
+                  renderValue={() => account?.name || "添加 Cloudflare 账号"}
+                  value={account?.id ?? ""}
+                  onValueChange={(value) => changeAccount(value ?? "")}
+                >
+                  {!accounts.data?.length && (
+                    <Select.Option value="">添加 Cloudflare 账号</Select.Option>
+                  )}
+                  {accounts.data?.map((item) => (
+                    <Select.Option key={item.id} value={item.id}>
+                      {item.name}
+                    </Select.Option>
+                  ))}
+                </Select>
+              )}
             </div>
           </Sidebar.Header>
           <Sidebar.Content>
@@ -318,10 +337,10 @@ function Shell({ username }: { username: string }) {
                 retry={() => void accounts.refetch()}
               />
             ) : accounts.isPending ? (
-              <Loading />
+              pageSkeleton
             ) : (
               <ErrorBoundary resetKey={location.pathname + location.search}>
-                <Suspense fallback={<Loading />}>
+                <Suspense key={location.pathname} fallback={pageSkeleton}>
                   <Routes>
                     <Route path="/overview" element={<Overview />} />
                     <Route
@@ -369,7 +388,7 @@ export function App() {
         <ErrorState error={auth.error} retry={() => void auth.refetch()} />
       </div>
     );
-  if (!auth.data) return <Loading />;
+  if (!auth.data) return <AuthSkeleton brand={<BrandMark />} />;
   if (!auth.data.authenticated) return <AuthScreen />;
   return <Shell username={auth.data.username || auth.data.email || "admin"} />;
 }

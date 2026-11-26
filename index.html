@@ -6,6 +6,7 @@
     <meta name="color-scheme" content="light dark" />
     <title>CloudSeed</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
+    <link rel="stylesheet" href="/src/skeleton.css" />
     <link
       rel="preload"
       href="/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2"
@@ -15,7 +16,20 @@
     />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot-skeleton" role="status" aria-busy="true">
+        <span class="skeleton-announcement">正在打开 CloudSeed</span>
+        <span aria-hidden="true" class="skeleton-line skeleton-boot-brand"></span>
+        <div aria-hidden="true" class="auth-card skeleton-stack">
+          <span class="skeleton-line skeleton-boot-title"></span>
+          <span class="skeleton-line skeleton-boot-label"></span>
+          <span class="skeleton-line skeleton-boot-control"></span>
+          <span class="skeleton-line skeleton-boot-label"></span>
+          <span class="skeleton-line skeleton-boot-control"></span>
+          <span class="skeleton-line skeleton-boot-control"></span>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

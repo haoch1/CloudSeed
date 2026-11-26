@@ -401,26 +401,20 @@ export function ErrorState({
     </div>
   );
 }
-export function Loading() {
-  return (
-    <div className="loading" role="status">
-      <span className="spinner" />
-      正在加载…
-    </div>
-  );
-}
 export function SubmitButton({
   pending,
+  disabled,
   children = "保存",
 }: {
   pending: boolean;
+  disabled?: boolean;
   children?: ReactNode;
 }) {
   return (
     <Button
       variant="primary"
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       aria-busy={pending}
     >
       <ActionLabel pending={pending}>{children}</ActionLabel>
